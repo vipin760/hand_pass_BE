@@ -3,7 +3,7 @@ const { pool } = require('../../config/database');
 async function createTablesIfNotExist() {
   try {
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
+  CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(100) NOT NULL,
   email VARCHAR(100) UNIQUE,
@@ -29,31 +29,39 @@ CREATE TABLE IF NOT EXISTS devices (
   updated_at TIMESTAMP DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS pass_records (
+  -- device group create
+  CREATE TABLE  IF NOT EXISTS access_groups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  sn VARCHAR(50) REFERENCES devices(sn) ON DELETE CASCADE,
-  name VARCHAR(100),
-  inmate_id VARCHAR(50),
-  palm_type VARCHAR(10) CHECK (palm_type IN ('left','right')),
-  device_date_time VARCHAR(20),
+  group_name VARCHAR(100) UNIQUE NOT NULL,
+  description TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE  IF NOT EXISTS group_users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  group_id UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  is_allowed BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS firmware_updates (
+CREATE TABLE  IF NOT EXISTS access_rules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  sn VARCHAR(50) REFERENCES devices(sn) ON DELETE CASCADE,
-  latest_firmware_version VARCHAR(20) NOT NULL,
-  firmware_url TEXT NOT NULL,
-  need_upgrade BOOLEAN NOT NULL DEFAULT false,
+  group_id UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
+  rule_name VARCHAR(100),                -- e.g., "Weekday Shift", "Night Shift"
+  is_active BOOLEAN DEFAULT TRUE,
+  days JSONB,                            -- ["Mon", "Fri"]
+  start_time TIME NOT NULL,              -- "10:00"
+  end_time TIME NOT NULL,                -- "18:00"
+  allow_cross_midnight BOOLEAN DEFAULT FALSE,   -- TRUE if end < start
+  created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS batch_import_files (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  sn VARCHAR(50) REFERENCES devices(sn) ON DELETE CASCADE,
-  batch_url TEXT NOT NULL,
-  updated_at TIMESTAMP DEFAULT now()
-);
+
+
 
     `);
 

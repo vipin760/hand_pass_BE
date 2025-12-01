@@ -1,28 +1,73 @@
 const { pool } = require("../config/database");
 
 
-async function connectDevice(sn, ip,userId) {
-    console.log(userId)
+// async function connectDevice(sn, ip,userId) {
+//     console.log(userId)
+//   const client = await pool.connect();
+
+//   try {
+//     await client.query("BEGIN");
+//     const exists = await client.query(
+//       "SELECT sn FROM devices WHERE sn = $1",
+//       [sn]
+//     );
+
+//     if (exists.rowCount === 0) {
+//       // Insert new device
+//       await client.query(
+//         `
+//         INSERT INTO devices (sn, device_ip, online_status,)
+//         VALUES ($1, $2, 1)
+//         `,
+//         [sn, ip]
+//       );
+//     } else {
+//       // Update existing device
+//       await client.query(
+//         `
+//         UPDATE devices
+//         SET online_status = 1,
+//             device_ip = $2,
+//             last_connect_time = now(),
+//             updated_at = now()
+//         WHERE sn = $1
+//         `,
+//         [sn, ip]
+//       );
+//     }
+
+//     await client.query("COMMIT");
+
+//     return { status: true, message: "success" };
+//   } catch (err) {
+//     await client.query("ROLLBACK");
+//     console.error("Error connecting device:", err);
+//     throw err;
+//   } finally {
+//     client.release();
+//   }
+// }
+
+async function connectDevice(sn, ip) {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
+
     const exists = await client.query(
       "SELECT sn FROM devices WHERE sn = $1",
       [sn]
     );
 
     if (exists.rowCount === 0) {
-      // Insert new device
       await client.query(
         `
-        INSERT INTO devices (sn, device_ip, online_status,)
+        INSERT INTO devices (sn, device_ip, online_status)
         VALUES ($1, $2, 1)
         `,
         [sn, ip]
       );
     } else {
-      // Update existing device
       await client.query(
         `
         UPDATE devices
@@ -38,7 +83,6 @@ async function connectDevice(sn, ip,userId) {
 
     await client.query("COMMIT");
 
-    return { status: true, message: "success" };
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("Error connecting device:", err);
@@ -50,10 +94,11 @@ async function connectDevice(sn, ip,userId) {
 
 
 
+
 async function addInmateService(data) {
   const {
     sn,
-    inmate_id,
+    id:inmate_id,
     name,
     image_left,
     image_right,

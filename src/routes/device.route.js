@@ -6,6 +6,7 @@ const router = express.Router();
 
 // router.use(authenticate)
 router.post("/connect", deviceController.connectDeviceController);
+
 router.get("/connect", deviceController.fetchAllConnectDevices);
 router.post("/add", deviceController.addUserToDeviceController);
 

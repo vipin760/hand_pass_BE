@@ -1,26 +1,45 @@
 const { pool } = require("../config/database");
 const { connectDevice, addInmateService } = require("../services/device.service");
 
-exports.connectDeviceController = async(req , res)=>{
-  // const { id } = req.user
-   try {
+// exports.connectDeviceController = async(req , res)=>{
+//   // const { id } = req.user
+//    try {
+//     const { sn } = req.body;
+
+//     if (!sn) {
+//       return res.status(400).json({ status: 1, msg: "sn is required" });
+//     }
+
+//     // Extract device IP (format fix for ::ffff:127.0.0.1)
+//     const deviceIp = req.ip.replace("::ffff:", "");
+
+//     const result = await connectDevice(sn, deviceIp,id);
+
+//     res.json(result);
+//   } catch (error) {
+//     console.error("Connect API error:", error);
+//     res.status(500).json({ status: 1, msg: "internal server error" });
+//   }
+// }
+exports.connectDeviceController = async (req, res) => {
+  try {
     const { sn } = req.body;
 
     if (!sn) {
-      return res.status(400).json({ status: 1, msg: "sn is required" });
+      return res.status(400).json({ code: 1, msg: "sn is required" });
     }
 
-    // Extract device IP (format fix for ::ffff:127.0.0.1)
     const deviceIp = req.ip.replace("::ffff:", "");
 
-    const result = await connectDevice(sn, deviceIp,id);
+    await connectDevice(sn, deviceIp);
 
-    res.json(result);
+    return res.json({ code: 0, msg: "success" });
+
   } catch (error) {
     console.error("Connect API error:", error);
-    res.status(500).json({ status: 1, msg: "internal server error" });
+    return res.status(500).json({ code: 1, msg: "internal server error" });
   }
-}
+};
 
 exports.fetchAllConnectDevices = async(req ,res)=>{
   try {
