@@ -16,10 +16,10 @@ async function connectDevice(sn, ip,userId) {
       // Insert new device
       await client.query(
         `
-        INSERT INTO devices (sn, device_ip, online_status,created_by,updated_by)
-        VALUES ($1, $2, 1,$3,$3)
+        INSERT INTO devices (sn, device_ip, online_status,)
+        VALUES ($1, $2, 1)
         `,
-        [sn, ip,userId]
+        [sn, ip]
       );
     } else {
       // Update existing device
@@ -29,11 +29,10 @@ async function connectDevice(sn, ip,userId) {
         SET online_status = 1,
             device_ip = $2,
             last_connect_time = now(),
-            updated_at = now(),
-            updated_by = $3
+            updated_at = now()
         WHERE sn = $1
         `,
-        [sn, ip,userId]
+        [sn, ip]
       );
     }
 
@@ -48,6 +47,8 @@ async function connectDevice(sn, ip,userId) {
     client.release();
   }
 }
+
+
 
 async function addInmateService(data) {
   const {

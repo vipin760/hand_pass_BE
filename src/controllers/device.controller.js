@@ -2,7 +2,7 @@ const { pool } = require("../config/database");
 const { connectDevice, addInmateService } = require("../services/device.service");
 
 exports.connectDeviceController = async(req , res)=>{
-  const { id } = req.user
+  // const { id } = req.user
    try {
     const { sn } = req.body;
 

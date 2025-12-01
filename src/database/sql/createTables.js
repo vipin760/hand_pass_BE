@@ -25,8 +25,6 @@ CREATE TABLE IF NOT EXISTS devices (
   online_status SMALLINT NOT NULL DEFAULT 0,
   last_connect_time TIMESTAMP DEFAULT now(),
   firmware_version VARCHAR(20) DEFAULT '1.0.0',
-  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMP DEFAULT now(),
   updated_at TIMESTAMP DEFAULT now()
 );
