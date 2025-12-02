@@ -1065,3 +1065,38 @@ exports.updateAccessRule = async (req, res) => {
     return res.status(500).json({ code: 1, msg: "server error" });
   }
 };
+
+// src/controllers/accessRule.controller.js
+exports.deleteAccessRule = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ code: 1, msg: "Rule ID is required" });
+    }
+
+    const deleteQuery = `
+      DELETE FROM access_rules
+      WHERE id = $1
+      RETURNING *;
+    `;
+
+    const result = await pool.query(deleteQuery, [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ code: 1, msg: "Access rule not found" });
+    }
+
+    return res.json({
+      code: 0,
+      msg: "Access rule permanently deleted",
+      data: result.rows[0],
+    });
+
+  } catch (error) {
+    console.error("deleteAccessRule error:", error);
+    return res.status(500).json({ code: 1, msg: "server error" });
+  }
+};
+
+

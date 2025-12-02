@@ -1,4 +1,7 @@
 const { pool } = require("../config/database")
+const userData = require("../data/data")
+const fs = require('fs');
+const path = require('path');
 
 exports.fetchAllUsers = async(req , res)=>{
     try {
@@ -11,8 +14,8 @@ exports.fetchAllUsers = async(req , res)=>{
 
 exports.addUserData = async (req, res) => {
   try {
-    const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = req.body;
-
+    // const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = req.body;
+    const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = userData;
     // 1. Basic validation
     if (!sn || !id || !name || !image_left || !image_right) {
       return res.json({ code: 1, msg: "Missing required fields" });
@@ -52,12 +55,12 @@ exports.addUserData = async (req, res) => {
     // 4. Save to database (raw base64 - same as old system)
     await pool.query(`
       INSERT INTO users (
-        sn, inmate_id, name,
+        sn,role, user_id, name,
         image_left, image_right,
         wiegand_flag, admin_auth,
         created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-    `, [sn, id, name, image_left, image_right, wiegand_flag, admin_auth]);
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7,$8, NOW(), NOW())
+    `, [sn,role="inmate", id, name, image_left, image_right, wiegand_flag, admin_auth]);
 
     console.log(`Palm registered: ${name} (${id}) on device ${sn}`);
     return res.json({ code: 0, msg: "success" });

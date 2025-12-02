@@ -1,5 +1,8 @@
 const { pool } = require("../config/database");
 const { connectDevice, addInmateService } = require("../services/device.service");
+const { validationResult } = require("express-validator");
+const ERR = require("../utils/errorCodes");
+const deviceLastConnectTime = new Map();
 
 // exports.connectDeviceController = async(req , res)=>{
 //   // const { id } = req.user
@@ -60,11 +63,11 @@ exports.connectDeviceController = async (req, res) => {
     // Fallback to 'unknown' or null if still invalid
     deviceIp = deviceIp && deviceIp !== '::1' ? deviceIp : null;
 
-   const result = await connectDevice(sn.trim(), deviceIp);
+    const result = await connectDevice(sn.trim(), deviceIp);
     return res.json({
       code: 0,
       msg: "success",
-      data: { sn, online: true, ip: deviceIp,device:result.data[0] }
+      data: { sn, online: true, ip: deviceIp, device: result.data[0] }
     });
 
   } catch (error) {
@@ -76,14 +79,14 @@ exports.connectDeviceController = async (req, res) => {
   }
 };
 
-exports.fetchAllConnectDevices = async(req ,res)=>{
+exports.fetchAllConnectDevices = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = "", status, sort_by = "created_at", sort_order = "DESC" } = req.query;
-     const offset = (page - 1) * limit;
-       let where = [];
+    const offset = (page - 1) * limit;
+    let where = [];
     let params = [];
     let idx = 1;
-     if (search) {
+    if (search) {
       where.push(`(sn ILIKE $${idx} OR device_name ILIKE $${idx} OR device_ip ILIKE $${idx})`);
       params.push(`%${search}%`);
       idx++;
@@ -136,10 +139,78 @@ exports.fetchAllConnectDevices = async(req ,res)=>{
     });
 
   } catch (error) {
-    console.log("<><>error",error)
-    return res.status(500).send({status:false, message:"internal server down"})
+    console.log("<><>error", error)
+    return res.status(500).send({ status: false, message: "internal server down" })
   }
 }
+
+exports.updateDeviceStatus = async (req, res) => {
+  try {
+    // Validate request
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({ ...ERR.PARAM_ERROR, errors: errors.array() });
+    }
+
+    const { sn, online_status, device_ip = "" } = req.body;
+    const now = new Date();
+
+    // 1️⃣ Check if device already exists
+    const existing = await pool.query(
+      `SELECT * FROM devices WHERE sn = $1 LIMIT 1`,
+      [sn]
+    );
+
+    let isNew = false;
+    let device;
+
+    if (existing.rows.length === 0) {
+      // 2️⃣ Device not found → Auto-register
+      const insert = await pool.query(
+        `
+        INSERT INTO devices (sn, device_ip, online_status, last_connect_time)
+        VALUES ($1, $2, $3, $4)
+        RETURNING *
+        `,
+        [sn, device_ip, online_status, now]
+      );
+
+      device = insert.rows[0];
+      isNew = true;
+
+    } else {
+      // 3️⃣ Device found → Update fields
+      const update = await pool.query(
+        `
+        UPDATE devices 
+        SET 
+          online_status = $1,
+          device_ip = $2,
+          last_connect_time = $3,
+          updated_at = now()
+        WHERE sn = $4
+        RETURNING *
+        `,
+        [online_status, device_ip, now, sn]
+      );
+
+      device = update.rows[0];
+    }
+
+    return res.json({
+      ...ERR.SUCCESS,
+      data: { device, isNew }
+    });
+
+  } catch (error) {
+    console.error("Error updating device status:", error);
+
+    return res.json({
+      ...ERR.DB_UPDATE_ERROR,
+      msg: `Device status update failed: ${error.message}`
+    });
+  }
+};
 
 exports.updateDevice = async (req, res) => {
   try {
@@ -313,7 +384,7 @@ exports.deleteDevice = async (req, res) => {
 };
 
 
-exports.addUserToDeviceController = async(req, res) => {
+exports.addUserToDeviceController = async (req, res) => {
   try {
     const result = await addInmateService(req.body);
     return res.json(result);
@@ -391,7 +462,7 @@ exports.addUserToDeviceController = async(req, res) => {
 //      * @returns {string|null}  
 //      */
 //     const convertRawBase64ToPngBase64 = async (rawBase64) => {
-       
+
 //       if (!rawBase64) {
 //         console.warn('raw base64 数据为空');
 //         return null;
@@ -491,113 +562,656 @@ exports.addUserToDeviceController = async(req, res) => {
 
 exports.deviceGetUsers = async (req, res) => {
   try {
-    // Validate input
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        code: 1,
-        msg: "Device serial number (sn) is required"
-      });
+    const { sn, page = 1, limit = 10, search = "", sortBy = "user_id", sortOrder = "ASC" } = req.body;
+
+    if (!sn) {
+      return res.status(400).json({ code: 1, msg: "sn is required" });
     }
 
-    const { sn } = req.body;
+    // Pagination values
+    const offset = (page - 1) * limit;
 
-    if (!sn || typeof sn !== 'string') {
-      return res.status(400).json({ code: 1, msg: "Invalid sn" });
+    // Build dynamic conditions
+    let query = `
+      SELECT 
+        user_id,
+        name,
+        wiegand_flag,
+        admin_auth,
+        image_left,
+        image_right
+      FROM users
+      WHERE sn = $1
+    `;
+
+    let params = [sn];
+
+    // Search
+    if (search) {
+      params.push(`%${search}%`);
+      query += ` AND name ILIKE $${params.length}`;
     }
 
-    // Query users by device sn
-    const result = await pool.query(
-      `SELECT 
-         user_id, 
-         name, 
-         wiegand_flag, 
-         admin_auth, 
-         image_left, 
-         image_right
-       FROM users 
-       WHERE sn = $1 
-       ORDER BY user_id ASC`,
-      [sn.trim()]
-    );
+    // Sorting
+    const validSortColumns = ["user_id", "name"];
+    const safeSortBy = validSortColumns.includes(sortBy) ? sortBy : "user_id";
+    const safeSortOrder = sortOrder.toUpperCase() === "DESC" ? "DESC" : "ASC";
 
+    query += ` ORDER BY ${safeSortBy} ${safeSortOrder}`;
+
+    // Pagination
+    params.push(limit, offset);
+    query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+
+    // Fetch users
+    const result = await pool.query(query, params);
     const users = result.rows;
 
-    // Function: Convert raw 768x988 grayscale to PNG base64
-    const convertRawToPngBase64 = async (rawBase64) => {
-      if (!rawBase64 || rawBase64.trim() === '') return null;
+    // Count total users for pagination
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM users WHERE sn = $1`,
+      [sn]
+    );
 
+    const totalCount = parseInt(countResult.rows[0].count);
+
+    // Convert RAW 768x988 grayscale → PNG base64
+    const convertRawToPngBase64 = async (rawBase64) => {
       try {
-        const cleanBase64 = rawBase64.includes('base64,') 
-          ? rawBase64.split('base64,')[1] 
+        if (!rawBase64) return null;
+
+        const cleanBase64 = rawBase64.includes("base64,")
+          ? rawBase64.split("base64,")[1]
           : rawBase64;
 
-        const buffer = Buffer.from(cleanBase64, 'base64');
+        const buffer = Buffer.from(cleanBase64, "base64");
 
-        // Must be exactly 768 × 988 × 1 byte = 758784 bytes
-        if (buffer.length !== 758784) {
-          console.warn(`Invalid image size: ${buffer.length} bytes (expected 758784)`);
-          return null;
-        }
+        if (buffer.length !== 758784) return null;
 
         const pngBuffer = await sharp(buffer, {
-          raw: { width: 768, height: 988, channels: 1 }
-        })
-          .normalize()
-          .linear(1.5, 20)
-          .gamma(1.2)
-          .png()
-          .toBuffer();
+          raw: { width: 768, height: 988, channels: 1 },
+        }).png().toBuffer();
 
-        return `data:image/png;base64,${pngBuffer.toString('base64')}`;
-      } catch (err) {
-        console.error("Image conversion failed:", err.message);
+        return `data:image/png;base64,${pngBuffer.toString("base64")}`;
+      } catch {
         return null;
       }
     };
 
-    // Process all users in parallel
+    // Process images
     const processedUsers = await Promise.all(
-      users.map(async (user) => {
-        const [imageLeftPng, imageRightPng] = await Promise.all([
-          convertRawToPngBase64(user.image_left),
-          convertRawToPngBase64(user.image_right)
-        ]);
-
-        return {
-          user_id: user.user_id,
-          name: user.name,
-          wiegand_flag: user.wiegand_flag,
-          admin_auth: user.admin_auth,
-          image_left: imageLeftPng,
-          image_right: imageRightPng
-        };
-      })
+      users.map(async (user) => ({
+        user_id: user.user_id,
+        name: user.name,
+        wiegand_flag: user.wiegand_flag,
+        admin_auth: user.admin_auth,
+        // image_left: await convertRawToPngBase64(user.image_left),
+        // image_right: await convertRawToPngBase64(user.image_right),
+        image_right:user.image_right,
+        image_left:user.image_left
+      }))
     );
 
     return res.json({
       code: 0,
       msg: "success",
       data: {
-        userList: processedUsers,
-        count: processedUsers.length
+        users: processedUsers,
+        total: totalCount,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(totalCount / limit),
+      },
+    });
+
+  } catch (error) {
+    console.error("deviceGetUsers error:", error);
+    return res.status(500).json({ code: 1, msg: "Server error", error: error.message });
+  }
+};
+
+
+exports.getPassRecordsByDeviceSn = async (req, res) => {
+  try {
+    // Validate request
+    if(!req.body || !req.body.sn){
+      return res.json({ ...ERR.PARAM_ERROR,errors:"missing fn field" });
+    }
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({ ...ERR.PARAM_ERROR, errors: errors.array() });
+    }
+
+    const { sn } = req.body;
+
+    // Query device access logs
+    const result = await pool.query(
+      `
+      SELECT 
+        id, 
+        sn, 
+        name, 
+        user_id, 
+        palm_type, 
+        device_date_time, 
+        created_at
+      FROM device_access_logs
+      WHERE sn = $1
+      ORDER BY device_date_time DESC
+      `,
+      [sn]
+    );
+
+    return res.json({
+      ...ERR.SUCCESS,
+      data: {
+        passRecordList: result.rows,
+        count: result.rowCount
       }
     });
 
   } catch (error) {
-    console.error("getUsersByDeviceSn error:", error);
-    return res.status(500).json({
-      code: 1,
-      msg: "Server error",
-      error: error.message
+    console.error("Error querying access records by device:", error);
+
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
+      msg: `Access record query failed: ${error.message}`
     });
   }
 };
 
-exports.getPassRecordsByDeviceSn = async(req , res)=>{
+exports.connect = async (req, res) => {
   try {
-    
+    // -----------------------------
+    // Validate request
+    // -----------------------------
+    if (!req.body || !req.body.sn) {
+      return res.json({ ...ERR.PARAM_ERROR, error: "missing sn field" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
+      });
+    }
+
+    const { sn } = req.body;
+
+    // -----------------------------
+    // Get Client IP
+    // -----------------------------
+    let clientIp = req.ip || req.connection.remoteAddress || null;
+
+    if (clientIp && clientIp.includes("::ffff:")) {
+      clientIp = clientIp.split("::ffff:")[1];
+    }
+
+    // Store last connect time in memory
+    const currentTime = Date.now();
+    deviceLastConnectTime.set(sn, currentTime);
+
+    // -----------------------------
+    // Check if device exists
+    // -----------------------------
+    const checkDevice = await pool.query(
+      `SELECT * FROM devices WHERE sn = $1`,
+      [sn]
+    );
+
+    if (checkDevice.rowCount > 0) {
+      // -----------------------------
+      // Update existing device
+      // -----------------------------
+      await pool.query(
+        `
+        UPDATE devices 
+        SET 
+          online_status = 1,
+          device_ip = $1,
+          last_connect_time = NOW(),
+          updated_at = NOW()
+        WHERE sn = $2
+        `,
+        [clientIp, sn]
+      );
+    } else {
+      // -----------------------------
+      // Insert new device
+      // -----------------------------
+      await pool.query(
+        `
+        INSERT INTO devices 
+          (sn, online_status, device_ip, last_connect_time, created_at, updated_at)
+        VALUES
+          ($1, 1, $2, NOW(), NOW(), NOW())
+        `,
+        [sn, clientIp]
+      );
+    }
+
+    return res.json({ ...ERR.SUCCESS });
+
   } catch (error) {
-    
+    console.error("Device connect error:", error);
+
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
+      msg: `Device connect failed: ${error.message}`
+    });
   }
-}
+};
+
+exports.deleteUser = async (req, res) => {
+  try {
+    // ----------------------------------------
+    // 1. Validate Request Body
+    // ----------------------------------------
+    if (!req.body || !req.body.sn || !req.body.id) {
+      return res.json({ 
+        ...ERR.PARAM_ERROR, 
+        errors: "Missing required fields: sn, id" 
+      });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({ 
+        ...ERR.PARAM_ERROR, 
+        errors: errors.array() 
+      });
+    }
+
+    // ----------------------------------------
+    // 2. Extract Payload
+    // ----------------------------------------
+    const { sn, id: studentId } = req.body;
+
+    // ----------------------------------------
+    // 3. Find User (user_id + sn)
+    // ----------------------------------------
+    const findUser = await pool.query(
+      `
+      SELECT * 
+      FROM users 
+      WHERE user_id = $1 AND sn = $2 
+      LIMIT 1
+      `,
+      [studentId, sn]
+    );
+
+    if (findUser.rows.length === 0) {
+      return res.json({ ...ERR.DB_ID_NOT_EXIST });
+    }
+
+    // ----------------------------------------
+    // 4. Delete User
+    // ----------------------------------------
+    await pool.query(
+      `
+      DELETE FROM users 
+      WHERE user_id = $1 AND sn = $2
+      `,
+      [studentId, sn]
+    );
+
+    // ----------------------------------------
+    // 5. Return Success
+    // ----------------------------------------
+    return res.json({ ...ERR.SUCCESS });
+
+  } catch (error) {
+    console.error("Delete user error:", error);
+
+    return res.json({
+      ...ERR.DB_DELETE_ERROR,
+      msg: `User deletion failed: ${error.message}`
+    });
+  }
+};
+
+exports.queryUsers = async (req, res) => {
+  try {
+    // ------------------------------------
+    // 1. Validate Body
+    // ------------------------------------
+    if (!req.body || !req.body.sn) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required field: sn"
+      });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
+      });
+    }
+
+    const { sn } = req.body;
+
+    // ------------------------------------
+    // 2. Fetch Users for This Device SN
+    // user_id → id (alias)
+    // ------------------------------------
+    const result = await pool.query(
+      `
+      SELECT 
+        user_id AS id,
+        wiegand_flag,
+        admin_auth
+      FROM users
+      WHERE sn = $1
+      `,
+      [sn]
+    );
+
+    console.log("Query result users →", result.rows);
+
+    // ------------------------------------
+    // 3. Return Response
+    // ------------------------------------
+    return res.json({
+      ...ERR.SUCCESS,
+      data: { idDataList: result.rows }
+    });
+
+  } catch (error) {
+    console.error("Query users error:", error);
+
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
+      msg: `User query failed: ${error.message}`
+    });
+  }
+};
+
+exports.checkRegistration = async (req, res) => {
+  try {
+    // ----------------------------------------
+    // 1️⃣ Parameter validation (sn and id required)
+    // ----------------------------------------
+    if (!req.body || !req.body.sn || !req.body.id) {
+      return res.json({ 
+        ...ERR.PARAM_ERROR, 
+        errors: "Missing required fields: sn, id" 
+      });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({ 
+        ...ERR.PARAM_ERROR, 
+        errors: errors.array() 
+      });
+    }
+
+    // ----------------------------------------
+    // 2️⃣ Extract payload
+    // ----------------------------------------
+    const { sn, id } = req.body;
+
+    // ----------------------------------------
+    // 3️⃣ Database query (check if user exists)
+    // ----------------------------------------
+    const result = await pool.query(
+      `SELECT id 
+       FROM users 
+       WHERE sn = $1 AND user_id = $2 
+       LIMIT 1`,
+      [sn, id]
+    );
+
+    // ----------------------------------------
+    // 4️⃣ Return result
+    // ----------------------------------------
+    res.json({
+      ...ERR.SUCCESS,
+      data: {
+        is_registered: result.rows.length > 0
+      }
+    });
+
+  } catch (error) {
+    console.error("Check registration error:", error);
+
+    // ----------------------------------------
+    // 5️⃣ Exception handling
+    // ----------------------------------------
+    res.json({ 
+      ...ERR.DB_CHECK_REG_ERROR, 
+      data: {},
+      msg: `Failed to check registration: ${error.message}`
+    });
+  }
+};
+
+exports.queryUserImages = async (req, res) => {
+  try {
+    // 1️⃣ Validate request body
+    if (!req.body || !req.body.sn || !req.body.id) {
+      return res.json({ 
+        ...ERR.PARAM_ERROR, 
+        errors: "Missing required fields: sn, id" 
+      });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({ 
+        ...ERR.PARAM_ERROR, 
+        errors: errors.array() 
+      });
+    }
+
+    // 2️⃣ Extract parameters
+    const { sn, id: studentId } = req.body;
+
+    // 3️⃣ Query database
+    const result = await pool.query(
+      `
+      SELECT name, image_left, image_right
+      FROM users
+      WHERE sn = $1 AND user_id = $2
+      LIMIT 1
+      `,
+      [sn, studentId]
+    );
+
+    // 4️⃣ Handle "user not found"
+    if (result.rows.length === 0) {
+      return res.json({ 
+        ...ERR.DB_ID_NOT_EXIST, 
+        data: {},
+        msg: `Student ID ${studentId} is not registered under device ${sn} (Error Code 30006, Document 3.1)`
+      });
+    }
+
+    // 5️⃣ Return success
+    const user = result.rows[0];
+    return res.json({
+      ...ERR.SUCCESS,
+      data: {
+        name: user.name,
+        image_left: user.image_left,
+        image_right: user.image_right
+      }
+    });
+
+  } catch (error) {
+    console.error("Query user images error:", error);
+    return res.json({ 
+      ...ERR.DB_QUERY_ERROR, 
+      data: {},
+      msg: `Database query failed: ${error.message} (Error Code 30004, Document 3.1)`
+    });
+  }
+};
+
+
+exports.firmwareUpgrade = async (req, res) => {
+  try {
+    // -------------------------------
+    // 1. Validate Request Body
+    // -------------------------------
+    if (!req.body || !req.body.sn || !req.body.version) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required fields: sn, version"
+      });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
+      });
+    }
+
+    // -------------------------------
+    // 2. Extract payload
+    // -------------------------------
+    const { sn, version } = req.body;
+
+    // -------------------------------
+    // 3. Query latest firmware info
+    // -------------------------------
+    const result = await pool.query(
+      `
+      SELECT latest_firmware_version, firmware_url
+      FROM system_info
+      WHERE sn = $1
+      LIMIT 1
+      `,
+      [sn]
+    );
+
+    // If device not found
+    if (result.rows.length === 0) {
+      return res.json({
+        ...ERR.SUCCESS,
+        data: {
+          need: false,
+          url: ""
+        }
+      });
+    }
+
+    const systemInfo = result.rows[0];
+
+    // -------------------------------
+    // 4. Compare version (semantic)
+    // -------------------------------
+    const toArray = (v) => v.split(".").map(n => Number(n));
+    const pad = (arr) => [...arr, 0, 0].slice(0, 3);
+
+    const currentVer = pad(toArray(version));
+    const latestVer = pad(toArray(systemInfo.latest_firmware_version));
+
+    let needUpdate =
+      latestVer[0] > currentVer[0] ||
+      (latestVer[0] === currentVer[0] && latestVer[1] > currentVer[1]) ||
+      (latestVer[0] === currentVer[0] && latestVer[1] === currentVer[1] && latestVer[2] > currentVer[2]);
+
+    // -------------------------------
+    // 5. Return Response
+    // -------------------------------
+    return res.json({
+      ...ERR.SUCCESS,
+      data: {
+        need: needUpdate,
+        url: needUpdate ? systemInfo.firmware_url : ""
+      }
+    });
+
+  } catch (error) {
+    console.error("Firmware upgrade error:", error);
+
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
+      msg: `Firmware upgrade check failed: ${error.message}`
+    });
+  }
+};
+
+exports.passList = async (req, res) => {
+  try {
+    // 1️⃣ Parameter validation (sn, name, id, type, device_date_time are required)
+    console.log('Access record request body:', req.body);
+    
+    if (!req.body || !req.body.sn || !req.body.name || !req.body.id || !req.body.type || !req.body.device_date_time) {
+      return res.json({ ...ERR.PARAM_ERROR, errors: "Missing required fields: sn, name, id, type, device_date_time" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({ ...ERR.PARAM_ERROR, errors: errors.array() });
+    }
+
+    // 2️⃣ Extract parameters
+    const { sn, name, id: userId, type: palmType, device_date_time } = req.body;
+
+    // 3️⃣ Insert record into database
+    await pool.query(
+      `
+      INSERT INTO device_access_logs (sn, name, user_id, palm_type, device_date_time)
+      VALUES ($1, $2, $3, $4, $5)
+      `,
+      [sn, name, userId, palmType, device_date_time]
+    );
+
+    // 4️⃣ Return success response
+    return res.json({ ...ERR.SUCCESS });
+
+  } catch (error) {
+    console.error("Insert access record error:", error);
+    return res.json({ ...ERR.DB_INSERT_ERROR, msg: `Database insert failed: ${error.message}` });
+  }
+};
+
+exports.queryBatchImportPath = async (req, res) => {
+  try {
+    // 1️⃣ Parameter validation (sn is required)
+    if (!req.body || !req.body.sn) {
+      return res.json({ ...ERR.PARAM_ERROR, errors: "Missing required field: sn" });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({ ...ERR.PARAM_ERROR, errors: errors.array() });
+    }
+
+    // 2️⃣ Extract payload
+    const { sn } = req.body;
+
+    // 3️⃣ Query database for batch import URL
+    const result = await pool.query(
+      `SELECT batch_import_url FROM system_info WHERE sn = $1 LIMIT 1`,
+      [sn]
+    );
+
+    // 4️⃣ Determine URL (fallback to default if not found)
+    const importUrl = result.rows.length > 0 
+      ? result.rows[0].batch_import_url 
+      : 'https://example.com/default_batch.csv';
+
+    // 5️⃣ Return success response
+    res.json({
+      ...ERR.SUCCESS,
+      data: {
+        url: importUrl
+      }
+    });
+
+  } catch (error) {
+    console.error("Error querying batch import path:", error);
+    res.json({ ...ERR.DB_QUERY_ERROR, data: {} });
+  }
+};
+
+
+
