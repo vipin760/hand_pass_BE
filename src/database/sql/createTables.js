@@ -8,6 +8,8 @@ async function createTablesIfNotExist() {
   name VARCHAR(100) NOT NULL,
   email VARCHAR(100) UNIQUE,
   password_hash TEXT,
+  sn VARCHAR(50),
+  inmate_id VARCHAR(100),
   role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'superadmin', 'inmate', 'staff', 'guard')),
   image_left TEXT,
   image_right TEXT,
@@ -44,7 +46,8 @@ CREATE TABLE  IF NOT EXISTS group_users (
   group_id UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   is_allowed BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP DEFAULT now()
+  created_at TIMESTAMP DEFAULT now(),
+  UNIQUE (group_id, user_id)
 );
 
 CREATE TABLE  IF NOT EXISTS access_rules (

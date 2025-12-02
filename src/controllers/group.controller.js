@@ -345,3 +345,723 @@ exports.deleteAccessGroup = async (req, res) => {
     });
   }
 };
+
+//////////////////add user to group//////////////////////////////////////////////////////////
+
+// src/controllers/group.controller.js
+exports.addUserToGroup = async (req, res) => {
+  try {
+    const { group_id, user_id } = req.body;
+
+    if (!group_id || !user_id) {
+      return res.status(400).json({
+        code: 1,
+        msg: "group_id and user_id are required",
+      });
+    }
+
+    // Optional: UUID validation
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(group_id) || !uuidRegex.test(user_id)) {
+      return res.status(400).json({
+        code: 1,
+        msg: "Invalid group_id or user_id format",
+      });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO group_users (group_id, user_id, created_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (group_id, user_id) DO NOTHING
+      RETURNING group_id, user_id, created_at
+      `,
+      [group_id, user_id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(409).json({
+        code: 1,
+        msg: "User is already in this group",
+      });
+    }
+
+    return res.json({
+      code: 0,
+      msg: "User added to group successfully",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("addUserToGroup error:", error);
+    if (error.code === "23503") {
+      return res.status(404).json({
+        code: 1,
+        msg: "Group or user not found",
+      });
+    }
+    return res.status(500).json({ code: 1, msg: "server error" });
+  }
+};
+
+// src/controllers/group.controller.js
+exports.getAllGroupMembersWithNames = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      search = "",
+      group_id,
+      role,
+      is_allowed,
+      sort_by = "gu.created_at",
+      sort_order = "desc"
+    } = req.query;
+
+    // Pagination
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Sorting whitelist
+    const validSort = [
+      "group_name", "user_name", "email", "role", "is_allowed", "gu.created_at"
+    ];
+    const sortCol = validSort.includes(sort_by) ? sort_by : "gu.created_at";
+    const sortDir = sort_order.toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    // Build WHERE conditions
+    let where = [];
+    let params = [];
+    let idx = 1;
+
+    // Search across group name, user name, email
+    if (search.trim()) {
+      where.push(`(
+        ag.group_name ILIKE $${idx} OR
+        u.name ILIKE $${idx} OR
+        u.email ILIKE $${idx}
+      )`);
+      params.push(`%${search.trim()}%`);
+      idx++;
+    }
+
+    if (group_id) {
+      where.push(`gu.group_id = $${idx}`);
+      params.push(group_id);
+      idx++;
+    }
+
+    if (role) {
+      where.push(`u.role = $${idx}`);
+      params.push(role);
+      idx++;
+    }
+
+    if (is_allowed !== undefined) {
+      const allowed = is_allowed === "true" || is_allowed === true;
+      where.push(`gu.is_allowed = $${idx}`);
+      params.push(allowed);
+      idx++;
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    // Main Query
+    const query = `
+      SELECT 
+        gu.id,
+        gu.group_id,
+        ag.group_name,
+        gu.user_id,
+        u.name AS user_name,
+        u.email,
+        u.role,
+        gu.is_allowed,
+        gu.created_at
+      FROM group_users gu
+      LEFT JOIN access_groups ag ON gu.group_id = ag.id AND ag.is_active = true
+      LEFT JOIN users u ON gu.user_id = u.id
+      ${whereClause}
+      ORDER BY ${sortCol} ${sortDir}
+      LIMIT $${idx} OFFSET $${idx + 1}
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM group_users gu
+      LEFT JOIN access_groups ag ON gu.group_id = ag.id AND ag.is_active = true
+      LEFT JOIN users u ON gu.user_id = u.id
+      ${whereClause}
+    `;
+
+    const finalParams = [...params, limitNum, offset];
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(query, finalParams),
+      pool.query(countQuery, params)
+    ]);
+
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: dataResult.rows,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        total_pages: Math.ceil(total / limitNum),
+        has_next: pageNum < Math.ceil(total / limitNum),
+        has_prev: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error("getAllGroupMembersWithNames error:", error);
+    return res.status(500).json({ code: 1, msg: "server error" });
+  }
+};
+
+// src/controllers/group.controller.js
+exports.getSingleGroupMember = async (req, res) => {
+  try {
+    const { id } = req.params; // ← the group_users.id (UUID)
+
+    if (!id) {
+      return res.status(400).json({
+        code: 1,
+        msg: "Member ID is required"
+      });
+    }
+
+    const query = `
+      SELECT 
+        gu.id,
+        gu.group_id,
+        ag.group_name,
+        gu.user_id,
+        u.name AS user_name,
+        u.email,
+        u.role,
+        gu.is_allowed,
+        gu.created_at
+      FROM group_users gu
+      LEFT JOIN access_groups ag ON gu.group_id = ag.id AND ag.is_active = true
+      LEFT JOIN users u ON gu.user_id = u.id
+      WHERE gu.id = $1
+    `;
+
+    const result = await pool.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        code: 1,
+        msg: "Group member not found"
+      });
+    }
+
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("getSingleGroupMember error:", error);
+    return res.status(500).json({ code: 1, msg: "server error" });
+  }
+};
+
+// src/controllers/group.controller.js
+exports.dynamicUpdateMember = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { group_id, user_id, is_allowed } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ code: 1, msg: "Missing URL id parameter" });
+    }
+
+    // Build dynamic SET clause
+    const updates = [];
+    const values = [];
+    let index = 1;
+
+    if (is_allowed !== undefined && is_allowed !== null) {
+      const boolValue =
+        is_allowed === true ||
+        is_allowed === "true" ||
+        is_allowed === 1 ||
+        is_allowed === "1";
+      updates.push(`is_allowed = $${index++}`);
+      values.push(boolValue);
+    }
+
+    if (group_id) {
+      updates.push(`group_id = $${index++}`);
+      values.push(group_id);
+    }
+
+    if (user_id) {
+      updates.push(`user_id = $${index++}`);
+      values.push(user_id);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({
+        code: 1,
+        msg: "No valid fields to update (is_allowed, group_id, user_id)"
+      });
+    }
+
+    // Always match by URL id
+    const whereClause = `WHERE id = $${index}`;
+    values.push(id);
+
+    const sql = `
+      UPDATE group_users
+      SET ${updates.join(", ")}
+      ${whereClause}
+      RETURNING *
+    `;
+
+    const result = await pool.query(sql, values);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ code: 1, msg: "No matching record found" });
+    }
+
+    return res.json({
+      code: 0,
+      msg: `Updated ${result.rowCount} record(s)`,
+      data: result.rows
+    });
+
+  } catch (error) {
+    console.error("dynamicUpdateMember error:", error);
+    return res.status(500).json({ code: 1, msg: "Server error" });
+  }
+};
+
+exports.deleteGroupMember = async (req, res) => {
+  try {
+    const { id } = req.params; // ← the group_users.id (UUID)
+
+    if (!id) {
+      return res.status(400).json({
+        code: 1,
+        msg: "Member ID is required"
+      });
+    }
+
+    const query = `
+      DELETE FROM group_users
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        code: 1,
+        msg: "Group member not found"
+      });
+    }
+
+    return res.json({
+      code: 0,
+      msg: "Group member deleted successfully",
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("deleteGroupMember error:", error);
+    return res.status(500).json({ code: 1, msg: "Server error" });
+  }
+};
+
+//////////////////group rules////////////////////////////////////////////////////
+// src/controllers/accessRule.controller.js
+exports.createAccessRule = async (req, res) => {
+  try {
+    const {
+      group_id,
+      rule_name,
+      days,                    // ← Will be auto-converted to JSONB by pg driver
+      start_time,
+      end_time,
+      allow_cross_midnight = false,
+      is_active = true
+    } = req.body;
+
+    // === REQUIRED FIELDS ===
+    if (!group_id || !start_time || !end_time) {
+      return res.status(400).json({
+        code: 1,
+        msg: "group_id, start_time, and end_time are required"
+      });
+    }
+
+    // === TIME FORMAT VALIDATION ===
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(start_time) || !timeRegex.test(end_time)) {
+      return res.status(400).json({
+        code: 1,
+        msg: "start_time and end_time must be in HH:MM format"
+      });
+    }
+
+    // === DAYS VALIDATION (optional but strict) ===
+    let daysJson = null;
+    if (days !== undefined && days !== null) {
+      if (!Array.isArray(days) || days.length === 0) {
+        return res.status(400).json({ code: 1, msg: "days must be a non-empty array" });
+      }
+      const validDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      const invalid = days.filter(d => !validDays.includes(d));
+      if (invalid.length > 0) {
+        return res.status(400).json({ code: 1, msg: `Invalid days: ${invalid.join(", ")}` });
+      }
+      daysJson = JSON.stringify(days) // ← Let node-pg serialize it correctly
+    }
+
+    // === INSERT (pg driver auto-converts array → JSONB) ===
+    console.log("<><>daysJson",daysJson)
+    const result = await pool.query(
+      `
+      INSERT INTO access_rules (
+        group_id, rule_name, days, start_time, end_time,
+        allow_cross_midnight, is_active
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+      `,
+      [
+        group_id,
+        rule_name || null,
+        daysJson,                    // ← CORRECT: pass array directly
+        start_time,
+        end_time,
+        Boolean(allow_cross_midnight),
+        Boolean(is_active)
+      ]
+    );
+
+    return res.status(201).json({
+      code: 0,
+      msg: "Access rule created successfully",
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("createAccessRule error:", error);
+
+    if (error.code === "23503") {
+      return res.status(404).json({ code: 1, msg: "Group not found" });
+    }
+    if (error.code === "22P02") {
+      return res.status(400).json({ code: 1, msg: "Invalid JSON format for 'days'" });
+    }
+
+    return res.status(500).json({ code: 1, msg: "Server error" });
+  }
+};
+
+// src/controllers/group.controller.js
+exports.getAllAccessRules = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      search = "",
+      is_active,
+      sort_by = "ag.group_name",
+      sort_order = "asc"
+    } = req.query;
+
+    // Pagination
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Sorting whitelist
+    const validSort = [
+      "ag.group_name",
+      "ar.rule_name",
+      "ar.start_time",
+      "ar.end_time",
+      "ar.created_at",
+      "ar.is_active"
+    ];
+    const sortCol = validSort.includes(sort_by) ? sort_by : "ag.group_name";
+    const sortDir = sort_order.toLowerCase() === "desc" ? "DESC" : "ASC";
+
+    // Build WHERE
+    let where = [];
+    let params = [];
+    let idx = 1;
+
+    // Search by rule_name OR group_name
+    if (search.trim()) {
+      where.push(`(
+        ar.rule_name ILIKE $${idx} OR 
+        ag.group_name ILIKE $${idx}
+      )`);
+      params.push(`%${search.trim()}%`);
+      idx++;
+    }
+
+    // Filter by is_active (on access_rules)
+    if (is_active !== undefined) {
+      const active = is_active === "true" || is_active === true;
+      where.push(`ar.is_active = $${idx}`);
+      params.push(active);
+      idx++;
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    // Main Query — LEFT JOIN to get group_name
+    const query = `
+      SELECT 
+        ar.id,
+        ar.group_id,
+        ag.group_name,
+        ar.rule_name,
+        ar.days,
+        ar.start_time,
+        ar.end_time,
+        ar.allow_cross_midnight,
+        ar.is_active,
+        ar.created_at
+      FROM access_rules ar
+      LEFT JOIN access_groups ag ON ar.group_id = ag.id
+      ${whereClause}
+      ORDER BY ${sortCol} ${sortDir}
+      LIMIT $${idx} OFFSET $${idx + 1}
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM access_rules ar
+      LEFT JOIN access_groups ag ON ar.group_id = ag.id
+      ${whereClause}
+    `;
+
+    const finalParams = [...params, limitNum, offset];
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(query, finalParams),
+      pool.query(countQuery, params)
+    ]);
+
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: dataResult.rows,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        total_pages: Math.ceil(total / limitNum),
+        has_next: pageNum < Math.ceil(total / limitNum),
+        has_prev: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error("getAllAccessRules error:", error);
+    return res.status(500).json({ code: 1, msg: "server error" });
+  }
+};
+
+// src/controllers/accessRule.controller.js
+exports.getSingleAccessRule = async (req, res) => {
+  try {
+    const { id } = req.params; // ← access_rules.id
+
+    if (!id) {
+      return res.status(400).json({
+        code: 1,
+        msg: "Rule ID is required"
+      });
+    }
+
+    const query = `
+      SELECT 
+        ar.id,
+        ar.group_id,
+        ag.group_name,
+        ar.rule_name,
+        ar.days,
+        ar.start_time,
+        ar.end_time,
+        ar.allow_cross_midnight,
+        ar.is_active,
+        ar.created_at,
+        ar.updated_at
+      FROM access_rules ar
+      LEFT JOIN access_groups ag ON ar.group_id = ag.id
+      WHERE ar.id = $1
+        AND ar.is_active = true  -- optional: hide deactivated rules
+    `;
+
+    const result = await pool.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        code: 1,
+        msg: "Access rule not found"
+      });
+    }
+
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("getSingleAccessRule error:", error);
+    return res.status(500).json({ code: 1, msg: "server error" });
+  }
+};
+
+// src/controllers/accessRule.controller.js
+exports.updateAccessRule = async (req, res) => {
+  try {
+    const { id } = req.params; // ← access_rules.id
+    const {
+      rule_name,
+      group_id,
+      days,
+      start_time,
+      end_time,
+      allow_cross_midnight,
+      is_active
+    } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ code: 1, msg: "Rule ID is required" });
+    }
+
+    // At least one field to update
+    if (
+      !rule_name &&
+      !days &&
+      !start_time &&
+      !end_time &&
+      allow_cross_midnight === undefined &&
+      is_active === undefined
+    ) {
+      return res.status(400).json({ code: 1, msg: "No fields to update" });
+    }
+
+    // Time format validation
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (start_time && !timeRegex.test(start_time)) {
+      return res.status(400).json({ code: 1, msg: "Invalid start_time format. Use HH:MM" });
+    }
+    if (end_time && !timeRegex.test(end_time)) {
+      return res.status(400).json({ code: 1, msg: "Invalid end_time format. Use HH:MM" });
+    }
+
+    // Days validation
+    let daysJson = null;
+    if (days !== undefined) {
+      if (days === null || (Array.isArray(days) && days.length === 0)) {
+        daysJson = null;
+      } else if (Array.isArray(days)) {
+        const validDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        const invalid = days.filter(d => !validDays.includes(d));
+        if (invalid.length > 0) {
+          return res.status(400).json({ code: 1, msg: `Invalid days: ${invalid.join(", ")}` });
+        }
+        daysJson = JSON.stringify(days); // ← pg driver handles array → JSONB
+      } else {
+        return res.status(400).json({ code: 1, msg: "days must be an array or null" });
+      }
+    }
+
+    // Build dynamic SET clause
+    let setClause = ["updated_at = NOW()"];
+    let params = [];
+    let idx = 1;
+    
+    if (rule_name !== undefined) {
+      setClause.push(`rule_name = $${idx}`);
+      params.push(rule_name || null);
+      idx++;
+    }
+    if (daysJson !== undefined) {
+      setClause.push(`days = $${idx}`);
+      params.push(daysJson);
+      idx++;
+    }
+    if (start_time) {
+      setClause.push(`start_time = $${idx}`);
+      params.push(start_time);
+      idx++;
+    }
+    if (end_time) {
+      setClause.push(`end_time = $${idx}`);
+      params.push(end_time);
+      idx++;
+    }
+    if (allow_cross_midnight !== undefined) {
+      setClause.push(`allow_cross_midnight = $${idx}`);
+      params.push(Boolean(allow_cross_midnight));
+      idx++;
+    }
+    if (is_active !== undefined) {
+      setClause.push(`is_active = $${idx}`);
+      params.push(Boolean(is_active));
+      idx++;
+    }
+    if (group_id !== undefined) {
+      setClause.push(`group_id = $${idx}`);
+      params.push(group_id || null);
+      idx++;
+    }
+    // Final query
+    const query = `
+      UPDATE access_rules 
+      SET ${setClause.join(", ")}
+      WHERE id = $${idx}
+      RETURNING 
+        id, group_id, rule_name, days, start_time, end_time,
+        allow_cross_midnight, is_active, created_at, updated_at
+    `;
+
+    params.push(id);
+
+    const result = await pool.query(query, params);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ code: 1, msg: "Access rule not found" });
+    }
+
+    // Fetch with group_name
+    const fullRule = await pool.query(
+      `SELECT 
+         ar.*, ag.group_name
+       FROM access_rules ar
+       LEFT JOIN access_groups ag ON ar.group_id = ag.id
+       WHERE ar.id = $1`,
+      [id]
+    );
+
+    return res.json({
+      code: 0,
+      msg: "Access rule updated successfully",
+      data: fullRule.rows[0]
+    });
+
+  } catch (error) {
+    console.error("updateAccessRule error:", error);
+    return res.status(500).json({ code: 1, msg: "server error" });
+  }
+};

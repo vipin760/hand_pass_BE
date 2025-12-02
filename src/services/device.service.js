@@ -48,7 +48,7 @@ const { pool } = require("../config/database");
 //   }
 // }
 
-async function connectDevice(sn, ip) {
+async function connectDevice1(sn, ip) {
   const client = await pool.connect();
 
   try {
@@ -87,6 +87,54 @@ async function connectDevice(sn, ip) {
     await client.query("ROLLBACK");
     console.error("Error connecting device:", err);
     throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function connectDevice(sn, deviceIp) {
+  const client = await pool.connect();
+ let result = null
+  try {
+    await client.query('BEGIN');
+
+    // Check if device already exists
+    const { rows: existing } = await client.query(
+      'SELECT sn FROM devices WHERE sn = $1',
+      [sn]
+    );
+
+    if (existing.length === 0) {
+      // Insert new device
+      result = await client.query(
+        `INSERT INTO devices (
+          sn, 
+         online_status, 
+         device_ip, 
+         last_connect_time, 
+         created_at, 
+         updated_at
+        ) VALUES ($1, 1, $2, NOW(), NOW(), NOW()) RETURNING*`,
+        [sn, deviceIp]
+      );
+    } else {
+      // Update existing device
+      result = await client.query(
+        `UPDATE devices 
+         SET online_status = 1,
+             device_ip = $2,
+             last_connect_time = NOW(),
+             updated_at = NOW()
+         WHERE sn = $1 RETURNING*`,
+        [sn, deviceIp]
+      );
+    }
+
+   await client.query('COMMIT');
+ return { status:true, data:result.rows}
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err; // Let controller handle it
   } finally {
     client.release();
   }

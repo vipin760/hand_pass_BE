@@ -21,23 +21,58 @@ const { connectDevice, addInmateService } = require("../services/device.service"
 //     res.status(500).json({ status: 1, msg: "internal server error" });
 //   }
 // }
+// exports.connectDeviceController = async (req, res) => {
+//   try {
+//     const { sn } = req.body;
+
+//     if (!sn) {
+//       return res.status(400).json({ code: 1, msg: "sn is required" });
+//     }
+
+//     const deviceIp = req.ip.replace("::ffff:", "");
+
+//     await connectDevice(sn, deviceIp);
+
+//     return res.json({ code: 0, msg: "success" });
+
+//   } catch (error) {
+//     console.error("Connect API error:", error);
+//     return res.status(500).json({ code: 1, msg: "internal server error" });
+//   }
+// };
+
 exports.connectDeviceController = async (req, res) => {
   try {
     const { sn } = req.body;
 
-    if (!sn) {
-      return res.status(400).json({ code: 1, msg: "sn is required" });
+    if (!sn || typeof sn !== 'string' || sn.trim() === '') {
+      return res.status(400).json({
+        code: 1,
+        msg: "Device serial number (sn) is required and cannot be empty"
+      });
     }
 
-    const deviceIp = req.ip.replace("::ffff:", "");
+    // Clean IP: remove ::ffff: prefix (common in Node.js with IPv6)
+    let deviceIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress;
+    if (deviceIp?.includes('::ffff:')) {
+      deviceIp = deviceIp.split('::ffff:')[1];
+    }
+    // Fallback to 'unknown' or null if still invalid
+    deviceIp = deviceIp && deviceIp !== '::1' ? deviceIp : null;
 
-    await connectDevice(sn, deviceIp);
-
-    return res.json({ code: 0, msg: "success" });
+   const result = await connectDevice(sn.trim(), deviceIp);
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: { sn, online: true, ip: deviceIp,device:result.data[0] }
+    });
 
   } catch (error) {
-    console.error("Connect API error:", error);
-    return res.status(500).json({ code: 1, msg: "internal server error" });
+    console.error('Device connect error:', error);
+    return res.status(500).json({
+      code: 1,
+      msg: "Failed to connect device"
+    });
   }
 };
 
@@ -69,7 +104,7 @@ exports.fetchAllConnectDevices = async(req ,res)=>{
     const query = `
       SELECT id, sn, device_name, device_ip, online_status,
              last_connect_time, firmware_version,
-             created_by, updated_by, created_at, updated_at
+             created_at, updated_at
       FROM devices
       ${whereSQL}
       ORDER BY ${sortField} ${sortOrder}
@@ -101,7 +136,7 @@ exports.fetchAllConnectDevices = async(req ,res)=>{
     });
 
   } catch (error) {
-    console.log("<><>error",error.message)
+    console.log("<><>error",error)
     return res.status(500).send({status:false, message:"internal server down"})
   }
 }
@@ -453,3 +488,116 @@ exports.addUserToDeviceController = async(req, res) => {
 //     return res.json({ ...ERR.DB_QUERY_ERROR, msg: `Access record query failed: ${error.message}` });
 //   }
 // };
+
+exports.deviceGetUsers = async (req, res) => {
+  try {
+    // Validate input
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        code: 1,
+        msg: "Device serial number (sn) is required"
+      });
+    }
+
+    const { sn } = req.body;
+
+    if (!sn || typeof sn !== 'string') {
+      return res.status(400).json({ code: 1, msg: "Invalid sn" });
+    }
+
+    // Query users by device sn
+    const result = await pool.query(
+      `SELECT 
+         user_id, 
+         name, 
+         wiegand_flag, 
+         admin_auth, 
+         image_left, 
+         image_right
+       FROM users 
+       WHERE sn = $1 
+       ORDER BY user_id ASC`,
+      [sn.trim()]
+    );
+
+    const users = result.rows;
+
+    // Function: Convert raw 768x988 grayscale to PNG base64
+    const convertRawToPngBase64 = async (rawBase64) => {
+      if (!rawBase64 || rawBase64.trim() === '') return null;
+
+      try {
+        const cleanBase64 = rawBase64.includes('base64,') 
+          ? rawBase64.split('base64,')[1] 
+          : rawBase64;
+
+        const buffer = Buffer.from(cleanBase64, 'base64');
+
+        // Must be exactly 768 × 988 × 1 byte = 758784 bytes
+        if (buffer.length !== 758784) {
+          console.warn(`Invalid image size: ${buffer.length} bytes (expected 758784)`);
+          return null;
+        }
+
+        const pngBuffer = await sharp(buffer, {
+          raw: { width: 768, height: 988, channels: 1 }
+        })
+          .normalize()
+          .linear(1.5, 20)
+          .gamma(1.2)
+          .png()
+          .toBuffer();
+
+        return `data:image/png;base64,${pngBuffer.toString('base64')}`;
+      } catch (err) {
+        console.error("Image conversion failed:", err.message);
+        return null;
+      }
+    };
+
+    // Process all users in parallel
+    const processedUsers = await Promise.all(
+      users.map(async (user) => {
+        const [imageLeftPng, imageRightPng] = await Promise.all([
+          convertRawToPngBase64(user.image_left),
+          convertRawToPngBase64(user.image_right)
+        ]);
+
+        return {
+          user_id: user.user_id,
+          name: user.name,
+          wiegand_flag: user.wiegand_flag,
+          admin_auth: user.admin_auth,
+          image_left: imageLeftPng,
+          image_right: imageRightPng
+        };
+      })
+    );
+
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: {
+        userList: processedUsers,
+        count: processedUsers.length
+      }
+    });
+
+  } catch (error) {
+    console.error("getUsersByDeviceSn error:", error);
+    return res.status(500).json({
+      code: 1,
+      msg: "Server error",
+      error: error.message
+    });
+  }
+};
+
+exports.getPassRecordsByDeviceSn = async(req , res)=>{
+  try {
+    
+  } catch (error) {
+    
+  }
+}

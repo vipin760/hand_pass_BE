@@ -19,6 +19,8 @@ const authRoutes = require("./routes/auth.route")
 const fileUploadRoutes = require('./routes/fileUpload.route')
 const connectDeviceRoutes = require("./routes/device.route");
 const groupRoutes = require("./routes/group.route");
+const usersRoutes = require("./routes/user.routes");
+const { restartDatabase } = require('./crone/deviceOfflineCron');
 
 
 app.use(express.urlencoded({ extended: true }));
@@ -29,6 +31,9 @@ app.use("/api/auth", authRoutes)
 app.use("/api/upload",fileUploadRoutes)
 app.use("/v1",connectDeviceRoutes)
 app.use("/api/group",groupRoutes)
+app.use("/api/users",usersRoutes)
+
+// restartDatabase()
 
 
 //error middleware
