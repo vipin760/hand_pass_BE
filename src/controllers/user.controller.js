@@ -1,7 +1,9 @@
 const { pool } = require("../config/database")
 const userData = require("../data/data")
+const { validationResult } = require("express-validator")
 const fs = require('fs');
 const path = require('path');
+const ERR = require("../utils/errorCodes");
 
 exports.fetchAllUsers = async(req , res)=>{
     try {
@@ -13,9 +15,16 @@ exports.fetchAllUsers = async(req , res)=>{
 }
 
 exports.addUserData = async (req, res) => {
+  console.log("<><>working add user data")
+   console.log("<><>req.body",req.body)
   try {
+     const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({ ...ERR.PARAM_ERROR, errors: errors.array() });
+    }
     // const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = req.body;
-    const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = userData;
+   
+    const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = req.body;
     // 1. Basic validation
     if (!sn || !id || !name || !image_left || !image_right) {
       return res.json({ code: 1, msg: "Missing required fields" });
@@ -66,7 +75,12 @@ exports.addUserData = async (req, res) => {
     return res.json({ code: 0, msg: "success" });
 
   } catch (error) {
-    console.error("addUserData failed:", error);
+    console.log("<><>addUserData failed:", error);
     return res.json({ code: 1, msg: "Registration failed" });
   }
+};
+
+exports.addUserData1 = async (req, res) => {
+  console.log("<><>working add user data")
+   console.log("<><>req.body",req.body)
 };
