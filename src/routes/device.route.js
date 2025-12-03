@@ -6,7 +6,7 @@ const { authenticate } = require("../middleware/auth");
 const router = express.Router();
 
 // router.use(authenticate)
-router.get("/device/getAll", deviceController.fetchAllConnectDevices);
+router.post("/device/getAll", deviceController.fetchAllConnectDevices);
 router.post("/device/updateStatus",deviceController.updateDeviceStatus)
 router.post("/device/getUsers", deviceController.deviceGetUsers);
 router.post("/device/getPassRecords", deviceController.getPassRecordsByDeviceSn);
