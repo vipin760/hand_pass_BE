@@ -574,6 +574,7 @@ exports.deviceGetUsers = async (req, res) => {
     // Build dynamic conditions
     let query = `
       SELECT 
+      id,
         user_id,
         name,
         wiegand_flag,
@@ -641,14 +642,15 @@ exports.deviceGetUsers = async (req, res) => {
     // Process images
     const processedUsers = await Promise.all(
       users.map(async (user) => ({
+        id:user.id,
         user_id: user.user_id,
         name: user.name,
         wiegand_flag: user.wiegand_flag,
         admin_auth: user.admin_auth,
         // image_left: await convertRawToPngBase64(user.image_left),
         // image_right: await convertRawToPngBase64(user.image_right),
-        image_right:user.image_right,
-        image_left:user.image_left
+        image_right: user.image_right,
+        image_left: user.image_left
       }))
     );
 
@@ -674,8 +676,8 @@ exports.deviceGetUsers = async (req, res) => {
 exports.getPassRecordsByDeviceSn = async (req, res) => {
   try {
     // Validate request
-    if(!req.body || !req.body.sn){
-      return res.json({ ...ERR.PARAM_ERROR,errors:"missing fn field" });
+    if (!req.body || !req.body.sn) {
+      return res.json({ ...ERR.PARAM_ERROR, errors: "missing fn field" });
     }
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -809,17 +811,17 @@ exports.deleteUser = async (req, res) => {
     // 1. Validate Request Body
     // ----------------------------------------
     if (!req.body || !req.body.sn || !req.body.id) {
-      return res.json({ 
-        ...ERR.PARAM_ERROR, 
-        errors: "Missing required fields: sn, id" 
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required fields: sn, id"
       });
     }
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.json({ 
-        ...ERR.PARAM_ERROR, 
-        errors: errors.array() 
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
       });
     }
 
@@ -935,17 +937,17 @@ exports.checkRegistration = async (req, res) => {
     // 1️⃣ Parameter validation (sn and id required)
     // ----------------------------------------
     if (!req.body || !req.body.sn || !req.body.id) {
-      return res.json({ 
-        ...ERR.PARAM_ERROR, 
-        errors: "Missing required fields: sn, id" 
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required fields: sn, id"
       });
     }
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.json({ 
-        ...ERR.PARAM_ERROR, 
-        errors: errors.array() 
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
       });
     }
 
@@ -981,8 +983,8 @@ exports.checkRegistration = async (req, res) => {
     // ----------------------------------------
     // 5️⃣ Exception handling
     // ----------------------------------------
-    res.json({ 
-      ...ERR.DB_CHECK_REG_ERROR, 
+    res.json({
+      ...ERR.DB_CHECK_REG_ERROR,
       data: {},
       msg: `Failed to check registration: ${error.message}`
     });
@@ -993,17 +995,17 @@ exports.queryUserImages = async (req, res) => {
   try {
     // 1️⃣ Validate request body
     if (!req.body || !req.body.sn || !req.body.id) {
-      return res.json({ 
-        ...ERR.PARAM_ERROR, 
-        errors: "Missing required fields: sn, id" 
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required fields: sn, id"
       });
     }
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.json({ 
-        ...ERR.PARAM_ERROR, 
-        errors: errors.array() 
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
       });
     }
 
@@ -1023,8 +1025,8 @@ exports.queryUserImages = async (req, res) => {
 
     // 4️⃣ Handle "user not found"
     if (result.rows.length === 0) {
-      return res.json({ 
-        ...ERR.DB_ID_NOT_EXIST, 
+      return res.json({
+        ...ERR.DB_ID_NOT_EXIST,
         data: {},
         msg: `Student ID ${studentId} is not registered under device ${sn} (Error Code 30006, Document 3.1)`
       });
@@ -1043,8 +1045,8 @@ exports.queryUserImages = async (req, res) => {
 
   } catch (error) {
     console.error("Query user images error:", error);
-    return res.json({ 
-      ...ERR.DB_QUERY_ERROR, 
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
       data: {},
       msg: `Database query failed: ${error.message} (Error Code 30004, Document 3.1)`
     });
@@ -1142,7 +1144,7 @@ exports.passList = async (req, res) => {
   try {
     // 1️⃣ Parameter validation (sn, name, id, type, device_date_time are required)
     console.log('Access record request body:', req.body);
-    
+
     if (!req.body || !req.body.sn || !req.body.name || !req.body.id || !req.body.type || !req.body.device_date_time) {
       return res.json({ ...ERR.PARAM_ERROR, errors: "Missing required fields: sn, name, id, type, device_date_time" });
     }
@@ -1195,8 +1197,8 @@ exports.queryBatchImportPath = async (req, res) => {
     );
 
     // 4️⃣ Determine URL (fallback to default if not found)
-    const importUrl = result.rows.length > 0 
-      ? result.rows[0].batch_import_url 
+    const importUrl = result.rows.length > 0
+      ? result.rows[0].batch_import_url
       : 'https://example.com/default_batch.csv';
 
     // 5️⃣ Return success response
