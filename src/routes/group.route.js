@@ -16,6 +16,7 @@ routes.get('/rules/:id',groupController.getSingleAccessRule)
 routes.put('/rules/:id',groupController.updateAccessRule)
 
 routes.get("/members/:id",groupController.getSingleGroupMember)
+routes.get("/group-members/:id",groupController.getUsersByGroup)
 routes.put("/members/:id",groupController.dynamicUpdateMember)
 routes.delete("/members/:id",groupController.deleteGroupMember)
 

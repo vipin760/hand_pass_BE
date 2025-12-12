@@ -3,8 +3,8 @@ const deviceController = require("../controllers/device.controller");
 const usersControllerController = require("../controllers/user.controller");
 const { authenticate } = require("../middleware/auth");
 
-const router = express.Router();
 
+const router = express.Router();
 // router.use(authenticate)
 router.post("/device/getAll", deviceController.fetchAllConnectDevices);
 router.post("/device/updateStatus",deviceController.updateDeviceStatus)

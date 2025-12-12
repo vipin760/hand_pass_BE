@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const ERR = require("../utils/errorCodes");
 
-exports.fetchAllUsers = async (req, res) => {
+exports.fetchAllUsers1 = async (req, res) => {
     try {
         const usersData = await pool.query('SELECT * FROM users')
         return res.status(200).send({ status: true, data: usersData.rows })
@@ -13,6 +13,122 @@ exports.fetchAllUsers = async (req, res) => {
         return res.status(500).send({ status: false, message: "internal server down" })
     }
 }
+
+exports.fetchAllUsers = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      role,
+      sn,
+      user_id,
+      sort_by = "created_at",
+      sort_order = "desc"
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Allowed sort columns
+    const validSortColumns = [
+      "name", "email", "role", "sn", "user_id",
+      "created_at", "updated_at"
+    ];
+
+    const sortColumn = validSortColumns.includes(sort_by) 
+      ? sort_by 
+      : "created_at";
+
+    const sortDirection = sort_order.toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    // WHERE clause builder
+    let whereConditions = [];
+    let params = [];
+    let paramIndex = 1;
+
+    // Search (name/email)
+    if (search.trim()) {
+      whereConditions.push(`(name ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`);
+      params.push(`%${search.trim()}%`);
+      paramIndex++;
+    }
+
+    // Filter: role
+    if (role) {
+      whereConditions.push(`role = $${paramIndex}`);
+      params.push(role);
+      paramIndex++;
+    }
+
+    // Filter: sn
+    if (sn) {
+      whereConditions.push(`sn = $${paramIndex}`);
+      params.push(sn);
+      paramIndex++;
+    }
+
+    // Filter: user_id
+    if (user_id) {
+      whereConditions.push(`user_id = $${paramIndex}`);
+      params.push(user_id);
+      paramIndex++;
+    }
+
+    const whereClause =
+      whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
+
+    // Fetch users with sort + pagination
+    const dataQuery = `
+      SELECT 
+        id, name, email, role, sn, user_id,
+        image_left, image_right, wiegand_flag, admin_auth,
+        created_at, updated_at
+      FROM users
+      ${whereClause}
+      ORDER BY ${sortColumn} ${sortDirection}
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    params.push(limitNum, offset);
+
+    // Count total rows (without pagination)
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM users
+      ${whereClause}
+    `;
+
+    // Execute queries
+    const dataResult = await pool.query(dataQuery, params);
+    const countResult = await pool.query(countQuery, params.slice(0, -2));
+
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    return res.status(200).json({
+      code: 0,
+      msg: "success",
+      data: dataResult.rows,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        total_pages: Math.ceil(total / limitNum),
+        has_next: pageNum < Math.ceil(total / limitNum),
+        has_prev: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error("fetchAllUsers error:", error);
+    return res.status(500).json({
+      code: 1,
+      msg: "internal server error",
+    });
+  }
+};
+
 
 exports.addUserData = async (req, res) => {
     try {

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS devices (
   -- device group create
   CREATE TABLE  IF NOT EXISTS access_groups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
   group_name VARCHAR(100) UNIQUE NOT NULL,
   description TEXT,
   is_active BOOLEAN DEFAULT TRUE,

@@ -2,19 +2,32 @@ const { pool } = require("../config/database");
 
 exports.createAccessGroup = async (req, res) => {
   try {
-    const { group_name, description } = req.body;
-
+    const { group_name, description, device_id } = req.body;
     if (!group_name) {
-      return res.status(400).json({ code: 1, msg: "group_name required" });
+      return res.status(400).json({ status: 1, msg: "group_name required" });
+    }
+    if (!device_id) {
+      return res.status(400).json({ status: 1, msg: "device_id required" });
+    }
+
+    const deviceExist = await pool.query(`SELECT * FROM devices WHERE id = $1`, [device_id])
+    if (!deviceExist.rows.length) {
+      return res.status(400).send({ status: 1, message: "could not find device" })
+    }
+
+    const groupExist = await pool.query(`SELECT * FROM access_groups WHERE device_id=$1`, [device_id])
+
+    if (groupExist.rows.length) {
+      return res.status(400).send({ status: 1, message: "same device group already exist" })
     }
 
     const result = await pool.query(
       `
-      INSERT INTO access_groups (group_name, description)
-      VALUES ($1, $2)
+      INSERT INTO access_groups (group_name, description, device_id)
+      VALUES ($1, $2, $3)
       RETURNING *
       `,
-      [group_name, description || null]
+      [group_name, description || null, device_id]
     );
 
     return res.json({
@@ -30,7 +43,7 @@ exports.createAccessGroup = async (req, res) => {
 };
 
 // GET /api/group   (or whatever your route is)
-exports.getAllAccessGroups = async (req, res) => {
+exports.getAllAccessGroups1 = async (req, res) => {
   try {
     const {
       page = 1,
@@ -72,7 +85,7 @@ exports.getAllAccessGroups = async (req, res) => {
 
     // Add pagination params
     params.push(limitNum, offset);
-    
+
     // 1. Query for data
     const dataQuery = `
       SELECT id, group_name, description, is_active, created_at, updated_at
@@ -115,9 +128,105 @@ exports.getAllAccessGroups = async (req, res) => {
     return res.status(500).json({ code: 1, msg: "server error" });
   }
 };
+exports.getAllAccessGroups = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      is_active,
+      sort_by = "created_at",
+      sort_order = "desc"
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const offset = (pageNum - 1) * limitNum;
+
+    const validSortColumns = ["group_name", "description", "is_active", "created_at", "updated_at", "id"];
+    const sortColumn = validSortColumns.includes(sort_by) ? sort_by : "created_at";
+    const sortDirection = sort_order.toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    let whereConditions = [];
+    let params = [];
+    let paramIndex = 1;
+
+    if (search.trim()) {
+      whereConditions.push(`(group_name ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`);
+      params.push(`%${search.trim()}%`);
+      paramIndex++;
+    }
+
+    if (is_active !== undefined) {
+      const activeBool = is_active === "true" || is_active === true;
+      whereConditions.push(`is_active = $${paramIndex}`);
+      params.push(activeBool);
+      paramIndex++;
+    }
+
+    const whereClause = whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
+
+    // Fetch groups with device info
+    const dataQuery = `
+      SELECT ag.id, ag.group_name, ag.description, ag.is_active, ag.created_at, ag.updated_at,
+             json_agg(json_build_object(
+               'device_id', d.id,
+               'device_name', d.device_name,
+               'sn', d.sn,
+               'device_ip', d.device_ip
+             )) AS devices
+      FROM access_groups ag
+      LEFT JOIN devices d ON ag.device_id = d.id
+      ${whereClause}
+      GROUP BY ag.id
+      ORDER BY ${sortColumn} ${sortDirection}
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(limitNum, offset);
+
+    // Total count query
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM access_groups
+      ${whereClause}
+    `;
+
+    const dataResult = await pool.query(dataQuery, params);
+    const countResult = await pool.query(countQuery, params.slice(0, -2));
+
+    const data = dataResult.rows.map(group => {
+      // Convert devices from array with null check
+      return {
+        ...group,
+        devices: group.devices[0].device_id ? group.devices : []
+      };
+    });
+
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    return res.json({
+      code: 0,
+      msg: "success",
+      data,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        total_pages: Math.ceil(total / limitNum),
+        has_next: pageNum < Math.ceil(total / limitNum),
+        has_prev: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error("getAllAccessGroups error:", error);
+    return res.status(500).json({ code: 1, msg: "server error" });
+  }
+};
+
 
 // GET /api/group/:id   or   GET /api/group/single?id=...
-exports.getSingleAccessGroup = async (req, res) => {
+exports.getSingleAccessGroup1 = async (req, res) => {
   try {
     // Support both route param (:id) and query param (?id=...)
     const groupId = req.params.id || req.query.id;
@@ -130,7 +239,7 @@ exports.getSingleAccessGroup = async (req, res) => {
     }
 
     // Optional: validate UUID format (highly recommended in production)
-    const uuidRegex = 
+    const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(groupId)) {
       return res.status(400).json({
@@ -169,9 +278,75 @@ exports.getSingleAccessGroup = async (req, res) => {
     });
   }
 };
+exports.getSingleAccessGroup = async (req, res) => {
+  try {
+    // Support both route param (:id) and query param (?id=...)
+    const groupId = req.params.id || req.query.id;
+
+    if (!groupId) {
+      return res.status(400).json({
+        code: 1,
+        msg: "Group ID is required",
+      });
+    }
+
+    // Validate UUID format
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(groupId)) {
+      return res.status(400).json({
+        code: 1,
+        msg: "Invalid UUID format",
+      });
+    }
+
+    const query = `
+      SELECT 
+        ag.id, ag.group_name, ag.description, ag.is_active, ag.created_at, ag.updated_at,
+        json_agg(json_build_object(
+          'device_id', d.id,
+          'device_name', d.device_name,
+          'sn', d.sn,
+          'device_ip', d.device_ip,
+          'online_status', d.online_status
+        )) AS devices
+      FROM access_groups ag
+      LEFT JOIN devices d ON ag.device_id = d.id
+      WHERE ag.id = $1
+      GROUP BY ag.id
+    `;
+
+    const result = await pool.query(query, [groupId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        code: 1,
+        msg: "Access group not found",
+      });
+    }
+
+    // Ensure devices array is empty if no devices
+    const group = result.rows[0];
+    group.devices = group.devices[0].device_id ? group.devices : [];
+
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: group,
+    });
+
+  } catch (error) {
+    console.error("getSingleAccessGroup error:", error);
+    return res.status(500).json({
+      code: 1,
+      msg: "server error",
+    });
+  }
+};
+
 
 // PUT /api/group/:id   or   PATCH /api/group/:id
-exports.updateAccessGroup = async (req, res) => {
+exports.updateAccessGroup1 = async (req, res) => {
   try {
     const groupId = req.params.id;
 
@@ -272,6 +447,107 @@ exports.updateAccessGroup = async (req, res) => {
   }
 };
 
+exports.updateAccessGroup = async (req, res) => {
+  try {
+    const groupId = req.params.id;
+
+    // Validate UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!groupId || !uuidRegex.test(groupId)) {
+      return res.status(400).json({ code: 1, msg: "Valid Group ID is required" });
+    }
+
+    const { group_name, description, is_active, device_id } = req.body;
+
+    // Nothing to update
+    if (!group_name && !description && is_active === undefined && !device_id) {
+      return res.status(400).json({ code: 1, msg: "Provide at least one field to update" });
+    }
+
+    const setClauses = [];
+    const params = [];
+    let paramIndex = 1;
+
+    // group_name
+    if (group_name !== undefined) {
+      if (typeof group_name !== "string" || group_name.trim() === "") {
+        return res.status(400).json({ code: 1, msg: "group_name must be a non-empty string" });
+      }
+      setClauses.push(`group_name = $${paramIndex}`);
+      params.push(group_name.trim());
+      paramIndex++;
+    }
+
+    // description
+    if (description !== undefined) {
+      setClauses.push(`description = $${paramIndex}`);
+      params.push(description === "" ? null : description.trim());
+      paramIndex++;
+    }
+
+    // is_active
+    if (is_active !== undefined) {
+      const activeBool = is_active === true || is_active === "true";
+      setClauses.push(`is_active = $${paramIndex}`);
+      params.push(activeBool);
+      paramIndex++;
+    }
+
+    // device_id
+    if (device_id !== undefined) {
+      // Validate that device exists
+      const deviceExist = await pool.query(`SELECT * FROM devices WHERE id = $1`, [device_id]);
+      if (deviceExist.rows.length === 0) {
+        return res.status(400).json({ code: 1, msg: "Device not found" });
+      }
+      const deviceInGroup = await pool.query(
+        `SELECT * FROM access_groups WHERE device_id = $1 AND id <> $2`,
+        [device_id, groupId]
+      );
+
+      if (deviceInGroup.rows.length > 0) {
+        return res.status(400).json({ code: 1, msg: "Device is already assigned to another group" });
+      }
+      setClauses.push(`device_id = $${paramIndex}`);
+      params.push(device_id);
+      paramIndex++;
+    }
+
+    // Always update updated_at
+    setClauses.push(`updated_at = NOW()`);
+
+    const query = `
+      UPDATE access_groups
+      SET ${setClauses.join(", ")}
+      WHERE id = $${paramIndex}
+      RETURNING id, group_name, description, is_active, device_id, created_at, updated_at
+    `;
+    params.push(groupId);
+
+    const result = await pool.query(query, params);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ code: 1, msg: "Access group not found" });
+    }
+
+    return res.json({
+      code: 0,
+      msg: "Group updated successfully",
+      data: result.rows[0],
+    });
+
+  } catch (error) {
+    console.error("updateAccessGroup error:", error);
+
+    if (error.code === "23505" && error.constraint === "access_groups_group_name_key") {
+      return res.status(409).json({ code: 1, msg: "Group name already exists" });
+    }
+
+    return res.status(500).json({ code: 1, msg: "Server error" });
+  }
+};
+
+
 // DELETE /api/group/:id
 exports.deleteAccessGroup = async (req, res) => {
   try {
@@ -291,14 +567,14 @@ exports.deleteAccessGroup = async (req, res) => {
 
     let query, params, successMsg;
 
-      // ⚠️ HARD DELETE — only allow if you really mean it
-      query = `
+    // ⚠️ HARD DELETE — only allow if you really mean it
+    query = `
         DELETE FROM access_groups 
         WHERE id = $1 
         RETURNING id, group_name
       `;
-      params = [groupId];
-      successMsg = "Group permanently deleted";
+    params = [groupId];
+    successMsg = "Group permanently deleted";
 
     // if (hardDelete) {
     //   // ⚠️ HARD DELETE — only allow if you really mean it
@@ -348,11 +624,124 @@ exports.deleteAccessGroup = async (req, res) => {
 
 //////////////////add user to group//////////////////////////////////////////////////////////
 
+// get user by group
+exports.getUsersByGroup = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      sort_by = "created_at",
+      sort_order = "desc"
+    } = req.query;
+
+    const { id: group_id } = req.params;
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Map frontend sort keys to actual DB columns with aliases
+    const columnMap = {
+      name: "u.name",
+      email: "u.email",
+      created_at: "gu.created_at", // when user was added to group
+      updated_at: "gu.updated_at"
+    };
+    const sortColumn = columnMap[sort_by] || "gu.created_at";
+    const sortDirection = sort_order.toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    // Build WHERE clause
+    let whereConditions = [];
+    let params = [];
+    let paramIndex = 1;
+
+    if (group_id) {
+      whereConditions.push(`gu.group_id = $${paramIndex}`);
+      params.push(group_id);
+      paramIndex++;
+    }
+
+    if (search.trim()) {
+      whereConditions.push(`(u.name ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex})`);
+      params.push(`%${search.trim()}%`);
+      paramIndex++;
+    }
+
+    const whereClause = whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
+
+    // Query users with group info
+    const dataQuery = `
+      SELECT 
+        g.id AS group_id,
+        g.group_name,
+        g.description,
+        g.is_active,
+        u.id AS user_id,
+        u.name,
+        u.email,
+        u.role,
+        gu.is_allowed,
+        gu.created_at AS added_at,
+        gu.id
+      FROM group_users gu
+      JOIN users u ON u.id = gu.user_id
+      JOIN access_groups g ON g.id = gu.group_id
+      ${whereClause}
+      ORDER BY ${sortColumn} ${sortDirection}
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(limitNum, offset);
+
+    // Query total count
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM group_users gu
+      JOIN users u ON u.id = gu.user_id
+      JOIN access_groups g ON g.id = gu.group_id
+      ${whereClause}
+    `;
+
+    const dataResult = await pool.query(dataQuery, params);
+    const countResult = await pool.query(countQuery, params.slice(0, -2));
+
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: dataResult.rows,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        total_pages: Math.ceil(total / limitNum),
+        has_next: pageNum < Math.ceil(total / limitNum),
+        has_prev: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error("getUsersByGroup error:", error);
+    return res.status(500).json({ code: 1, msg: "server error" });
+  }
+};
+
+
 // src/controllers/group.controller.js
 exports.addUserToGroup = async (req, res) => {
   try {
     const { group_id, user_id } = req.body;
 
+    const groupExist = await pool.query(`SELECT * FROM access_groups WHERE  id=$1`, [group_id])
+    if (!groupExist.rows.length) {
+      return res.status(400).send({ code: 1, message: "could not able to find group" });
+    }
+
+    const userExist = await pool.query(`SELECT * FROM users WHERE  id=$1`, [user_id])
+    if (!userExist.rows.length) {
+      return res.status(400).send({ code: 1, message: "could not able to find user" });
+    }
     if (!group_id || !user_id) {
       return res.status(400).json({
         code: 1,
@@ -598,9 +987,26 @@ exports.dynamicUpdateMember = async (req, res) => {
       values.push(boolValue);
     }
 
-    if (group_id) {
-      updates.push(`group_id = $${index++}`);
-      values.push(group_id);
+    // if (group_id) {
+    //   updates.push(`group_id = $${index++}`);
+    //   values.push(group_id);
+    // }
+    if (group_id || user_id) {
+      const checkSql = `
+    SELECT id FROM group_users 
+    WHERE group_id = COALESCE($1, group_id)
+      AND user_id = COALESCE($2, user_id)
+      AND id <> $3
+    LIMIT 1
+  `;
+      const check = await pool.query(checkSql, [group_id, user_id, id]);
+
+      if (check.rowCount > 0) {
+        return res.status(409).json({
+          code: 1,
+          msg: "Combination of group_id and user_id already exists"
+        });
+      }
     }
 
     if (user_id) {
@@ -728,7 +1134,7 @@ exports.createAccessRule = async (req, res) => {
     }
 
     // === INSERT (pg driver auto-converts array → JSONB) ===
-    console.log("<><>daysJson",daysJson)
+    console.log("<><>daysJson", daysJson)
     const result = await pool.query(
       `
       INSERT INTO access_rules (
@@ -990,7 +1396,7 @@ exports.updateAccessRule = async (req, res) => {
     let setClause = ["updated_at = NOW()"];
     let params = [];
     let idx = 1;
-    
+
     if (rule_name !== undefined) {
       setClause.push(`rule_name = $${idx}`);
       params.push(rule_name || null);

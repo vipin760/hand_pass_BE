@@ -394,173 +394,7 @@ exports.addUserToDeviceController = async (req, res) => {
   }
 }
 
-// exports.getAllDevices1 = async (req, res) => {
-//   try {
-//     const devices = await Device.findAll({
-//       order: [['last_connect_time', 'DESC']] // Sort by last connection time in descending order
-//     });
-//     return res.json({
-//       ...ERR.SUCCESS,
-//       data: { deviceList: devices } // Return device list
-//     });
-//   } catch (error) {
-//     console.error('Error querying device list:', error);
-//     return res.json({ ...ERR.DB_QUERY_ERROR, msg: `Device query failed: ${error.message}` });
-//   }
-// };
-
-// exports.getAllDevices = async (req, res) => {
-//   try {
-//    res.status(200)
-//   } catch (error) {
-//     return res.json({ ...ERR.DB_QUERY_ERROR, msg: `Device query failed: ${error.message}` });
-//   }
-// };
-
-// exports.updateDeviceStatus = async (req, res) => {
-//   try {
-//     const errors = validationResult(req);
-//     if (!errors.isEmpty()) return res.json({ ...ERR.PARAM_ERROR });
-
-//     const { sn, online_status, device_ip = '' } = req.body;
-//     // Check if the device exists; create if not (auto-register new devices)
-//     const [device, created] = await Device.findOrCreate({
-//       where: { sn },
-//       defaults: { online_status, device_ip, last_connect_time: new Date() }
-//     });
-//     // If the device exists, update its status and IP
-//     if (!created) {
-//       await device.update({ 
-//         online_status, 
-//         device_ip, 
-//         last_connect_time: new Date() 
-//       });
-//     }
-//     return res.json({ ...ERR.SUCCESS, data: { device, isNew: created } });
-//   } catch (error) {
-//     console.error('Error updating device status:', error);
-//     return res.json({ ...ERR.DB_UPDATE_ERROR, msg: `Device status update failed: ${error.message}` });
-//   }
-// };
-
-// exports.getUsersByDeviceSn = async (req, res) => {
-//   try {
-//     const errors = validationResult(req);
-//     if (!errors.isEmpty()) {
-//       console.warn('参数校验失败:', errors.array());
-//       return res.json({ ...ERR.PARAM_ERROR });
-//     }
-//     const { sn } = req.body;
-//     const users = await User.findAll({
-//       where: { sn },
-//       attributes: ['user_id', 'name', 'wiegand_flag', 'admin_auth', 'image_left', 'image_right'],
-//       order: [['user_id', 'ASC']]
-//     });
-
-//     /**
-//      * @param {string} rawBase64  
-//      * @returns {string|null}  
-//      */
-//     const convertRawBase64ToPngBase64 = async (rawBase64) => {
-
-//       if (!rawBase64) {
-//         console.warn('raw base64 数据为空');
-//         return null;
-//       }
-
-//       try {
-//          const pureRawBase64 = rawBase64.includes('base64,') 
-//           ? rawBase64.split('base64,')[1] 
-//           : rawBase64;
-
-//          const rawBuffer = Buffer.from(pureRawBase64, 'base64');
-
-//          const expectedRawSize = 768 * 988 * 1; // 768宽×988高×1通道（8位灰度图）
-//         if (rawBuffer.length !== expectedRawSize) {
-//           console.error(`raw 数据大小不匹配：预期 ${expectedRawSize} 字节，实际 ${rawBuffer.length} 字节`);
-//           return null;
-//         }
-
-//         const pngBuffer = await sharp(rawBuffer, {
-//           raw: {
-//             width: 768,    // 必须与原始 raw 图像宽度一致
-//             height: 988,   // 必须与原始 raw 图像高度一致
-//             channels: 1    // 1=灰度图，与原始 raw 通道数一致
-//           }
-//         })
-//         .normalize() // 优化对比度（解决图像灰暗问题）
-//         .linear(1.5, 20) // 增强亮度（斜率1.5=增亮，偏移20=提亮暗部）
-//         .gamma(1.2) // 修正伽马值（1.0-3.0范围，优化画质）
-//         .toFormat('png') // 输出格式指定为 PNG
-//         .toBuffer(); // 生成 PNG 二进制 Buffer（内存中）
-
-//         const pngBase64 = `data:image/png;base64,${pngBuffer.toString('base64')}`;
-//         console.log('raw 转 PNG base64 成功（长度：%d 字符）', pngBase64.length);
-//         return pngBase64;
-
-//       } catch (convertError) {
-//         console.error('raw 转 PNG base64 失败:', convertError);
-//         return null; 
-//       }
-//     };
-
-//     const processedUsers = await Promise.all(
-//       users.map(async (user) => {
-//         const userObj = user.toJSON();
-//         const [imageLeftPng, imageRightPng] = await Promise.all([
-//           convertRawBase64ToPngBase64(userObj.image_left),
-//           convertRawBase64ToPngBase64(userObj.image_right)
-//         ]);
-
-//         return {
-//           ...userObj,
-//           image_left: imageLeftPng,  // 替换为 PNG base64
-//           image_right: imageRightPng // 替换为 PNG base64
-//         };
-//       })
-//     );
-
-//     return res.json({
-//       ...ERR.SUCCESS,
-//       data: {
-//         userList: processedUsers, // 转换后的用户列表（含 PNG base64）
-//         count: processedUsers.length
-//       }
-//     });
-
-//   } catch (error) {
-//     console.error('查询设备用户全局错误:', error);
-//     return res.json({
-//       ...ERR.DB_QUERY_ERROR,
-//       msg: `User query failed: ${error.message}`
-//     });
-//   }
-// };
-
-// // 4. Query access records by device sn (adapts to Requirement 4: View access records of the current device, sorted by time in descending order)
-// exports.getPassRecordsByDeviceSn = async (req, res) => {
-//   try {
-//     const errors = validationResult(req);
-//     if (!errors.isEmpty()) return res.json({ ...ERR.PARAM_ERROR });
-
-//     const { sn } = req.body;
-//     // Query all access records under this device, sorted by access time in descending order
-//     const passRecords = await PassRecord.findAll({
-//       where: { sn },
-//       attributes: ['id', 'name', 'user_id', 'palm_type', 'device_date_time', 'created_at'],
-//       order: [['device_date_time', 'DESC']] // Core: Sort by access time in descending order
-//     });
-//     return res.json({
-//       ...ERR.SUCCESS,
-//       data: { passRecordList: passRecords, count: passRecords.length }
-//     });
-//   } catch (error) {
-//     console.error('Error querying access records by device:', error);
-//     return res.json({ ...ERR.DB_QUERY_ERROR, msg: `Access record query failed: ${error.message}` });
-//   }
-// };
-
-exports.deviceGetUsers = async (req, res) => {
+exports.deviceGetUsers1 = async (req, res) => {
   try {
     const { sn, page = 1, limit = 10, search = "", sortBy = "user_id", sortOrder = "ASC" } = req.body;
 
@@ -671,6 +505,134 @@ exports.deviceGetUsers = async (req, res) => {
     return res.status(500).json({ code: 1, msg: "Server error", error: error.message });
   }
 };
+
+exports.deviceGetUsers = async (req, res) => {
+  try {
+    const { sn, page = 1, limit = 10, search = "", sortBy = "user_id", sortOrder = "ASC" } = req.body;
+
+    if (!sn) {
+      return res.status(400).json({ code: 1, msg: "sn is required" });
+    }
+
+    const offset = (page - 1) * limit;
+
+    // -----------------------------------------------------
+    // 1. Get device_id using sn
+    // -----------------------------------------------------
+    const deviceRes = await pool.query(
+      `SELECT id FROM devices WHERE sn = $1`,
+      [sn]
+    );
+
+    if (deviceRes.rowCount === 0) {
+      return res.json({ code: 1, msg: "Device not found" });
+    }
+
+    const deviceId = deviceRes.rows[0].id;
+
+    // -----------------------------------------------------
+    // 2. Get group_id for this device
+    // (Assuming 1 device = 1 group as you said)
+    // -----------------------------------------------------
+    const groupRes = await pool.query(
+      `SELECT id FROM access_groups WHERE device_id = $1 LIMIT 1`,
+      [deviceId]
+    );
+
+    if (groupRes.rowCount === 0) {
+      return res.json({ code: 1, msg: "No group found for this device" });
+    }
+
+    const groupId = groupRes.rows[0].id;
+
+    // -----------------------------------------------------
+    // 3. Fetch user list from this group
+    // -----------------------------------------------------
+    let query = `
+      SELECT 
+        u.id,
+        u.user_id,
+        u.name,
+        u.wiegand_flag,
+        u.admin_auth,
+        u.image_left,
+        u.image_right
+      FROM group_users gu
+      JOIN users u ON u.id = gu.user_id
+      WHERE gu.group_id = $1
+    `;
+
+    let params = [groupId];
+
+    // Search
+    if (search) {
+      params.push(`%${search}%`);
+      query += ` AND (u.name ILIKE $${params.length} OR u.user_id ILIKE $${params.length})`;
+    }
+
+    // Sorting
+    const validSortColumns = ["user_id", "name"];
+    const safeSortBy = validSortColumns.includes(sortBy) ? sortBy : "user_id";
+    const safeSortOrder = sortOrder.toUpperCase() === "DESC" ? "DESC" : "ASC";
+
+    query += ` ORDER BY ${safeSortBy} ${safeSortOrder}`;
+
+    // Pagination
+    params.push(limit, offset);
+    query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+
+    const result = await pool.query(query, params);
+    const users = result.rows;
+
+    // -----------------------------------------------------
+    // 4. Count total
+    // -----------------------------------------------------
+    const countRes = await pool.query(
+      `
+      SELECT COUNT(*) 
+      FROM group_users gu 
+      JOIN users u ON u.id = gu.user_id
+      WHERE gu.group_id = $1
+        AND (
+          u.name ILIKE $2 OR u.user_id ILIKE $2
+        )
+      `,
+      [groupId, `%${search}%`]
+    );
+
+    const totalCount = parseInt(countRes.rows[0].count);
+
+    // -----------------------------------------------------
+    // 5. Return expected output
+    // -----------------------------------------------------
+    
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: {
+        users: users.map((u) => ({
+          id: u.id,
+          user_id: u.user_id,
+          name: u.name,
+          wiegand_flag: u.wiegand_flag,
+          admin_auth: u.admin_auth,
+          image_left: u.image_left,
+          image_right: u.image_right
+        })),
+        total: totalCount,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(totalCount / limit)
+      }
+    });
+
+  } catch (error) {
+    console.error("deviceGetUsers error:", error);
+    return res.status(500).json({ code: 1, msg: "Server error", error: error.message });
+  }
+};
+
+
 
 
 exports.getPassRecordsByDeviceSn = async (req, res) => {
@@ -873,7 +835,7 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
-exports.queryUsers = async (req, res) => {
+exports.queryUsers1 = async (req, res) => {
   try {
     // ------------------------------------
     // 1. Validate Body
@@ -930,6 +892,85 @@ exports.queryUsers = async (req, res) => {
     });
   }
 };
+
+exports.queryUsers = async (req, res) => {
+  try {
+    // 1️⃣ Validate SN
+    if (!req.body || !req.body.sn) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required field: sn"
+      });
+    }
+
+    const { sn } = req.body;
+
+    // 2️⃣ Get Device ID
+    const devRes = await pool.query(
+      `SELECT id FROM devices WHERE sn = $1`,
+      [sn]
+    );
+
+    if (devRes.rows.length === 0) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Device not found"
+      });
+    }
+
+    const deviceId = devRes.rows[0].id;
+    console.log("Device ID:", deviceId);
+
+    // 3️⃣ Get the ONE group for this device
+    const groupRes = await pool.query(
+      `SELECT id FROM access_groups WHERE device_id = $1 LIMIT 1`,
+      [deviceId]
+    );
+
+    if (groupRes.rows.length === 0) {
+      return res.json({
+        ...ERR.SUCCESS,
+        data: { idDataList: [] }
+      });
+    }
+
+    const groupId = groupRes.rows[0].id;
+    console.log("Group ID:", groupId);
+
+    // 4️⃣ Fetch users linked to THIS single group
+    const result = await pool.query(
+      `
+      SELECT 
+        u.user_id AS id,
+        u.wiegand_flag,
+        u.admin_auth
+      FROM group_users gu
+      JOIN users u ON u.id = gu.user_id
+      WHERE gu.group_id = $1
+      `,
+      [groupId]
+    );
+
+    console.log("Users:", result.rows);
+
+    return res.json({
+      ...ERR.SUCCESS,
+      data: { idDataList: result.rows }
+    });
+
+  } catch (error) {
+    console.error("queryUsers error:", error);
+
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
+      msg: `Query failed: ${error.message}`
+    });
+  }
+};
+
+
+
+
 
 exports.checkRegistration = async (req, res) => {
   try {
