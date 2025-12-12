@@ -681,6 +681,8 @@ exports.getUsersByGroup = async (req, res) => {
         u.name,
         u.email,
         u.role,
+        u.wiegand_flag,
+        u.admin_auth,
         gu.is_allowed,
         gu.created_at AS added_at,
         gu.id
