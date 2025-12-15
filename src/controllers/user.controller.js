@@ -6,12 +6,12 @@ const path = require('path');
 const ERR = require("../utils/errorCodes");
 
 exports.fetchAllUsers1 = async (req, res) => {
-    try {
-        const usersData = await pool.query('SELECT * FROM users')
-        return res.status(200).send({ status: true, data: usersData.rows })
-    } catch (error) {
-        return res.status(500).send({ status: false, message: "internal server down" })
-    }
+  try {
+    const usersData = await pool.query('SELECT * FROM users')
+    return res.status(200).send({ status: true, data: usersData.rows })
+  } catch (error) {
+    return res.status(500).send({ status: false, message: "internal server down" })
+  }
 }
 
 exports.fetchAllUsers = async (req, res) => {
@@ -37,8 +37,8 @@ exports.fetchAllUsers = async (req, res) => {
       "created_at", "updated_at"
     ];
 
-    const sortColumn = validSortColumns.includes(sort_by) 
-      ? sort_by 
+    const sortColumn = validSortColumns.includes(sort_by)
+      ? sort_by
       : "created_at";
 
     const sortDirection = sort_order.toLowerCase() === "asc" ? "ASC" : "DESC";
@@ -129,54 +129,198 @@ exports.fetchAllUsers = async (req, res) => {
   }
 };
 
+exports.fetchAllUsersWithGroup = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      role,
+      sn,
+      user_id,
+      sort_by = "created_at",
+      sort_order = "desc"
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Allowed sort columns
+    const validSortColumns = [
+      "name", "email", "role", "sn", "user_id",
+      "created_at", "updated_at"
+    ];
+
+    const sortColumn = validSortColumns.includes(sort_by)
+      ? sort_by
+      : "created_at";
+
+    const sortDirection = sort_order.toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    // WHERE clause builder
+    let whereConditions = [];
+    let params = [];
+    let paramIndex = 1;
+
+    // Search (name/email)
+    if (search.trim()) {
+      whereConditions.push(`(name ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`);
+      params.push(`%${search.trim()}%`);
+      paramIndex++;
+    }
+
+    // Filter: role
+    if (role) {
+      whereConditions.push(`role = $${paramIndex}`);
+      params.push(role);
+      paramIndex++;
+    }
+
+    // Filter: sn
+    if (sn) {
+      whereConditions.push(`sn = $${paramIndex}`);
+      params.push(sn);
+      paramIndex++;
+    }
+
+    // Filter: user_id
+    if (user_id) {
+      whereConditions.push(`user_id = $${paramIndex}`);
+      params.push(user_id);
+      paramIndex++;
+    }
+
+    const whereClause =
+      whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
+
+    // Fetch users with sort + pagination
+    const dataQuery = `
+  SELECT 
+    u.id,
+    u.name,
+    u.email,
+    u.role,
+    u.sn,
+    u.user_id,
+    u.image_left,
+    u.image_right,
+    u.wiegand_flag,
+    u.admin_auth,
+    u.created_at,
+    u.updated_at,
+
+    COUNT(DISTINCT gu.group_id) AS group_count,
+
+    COALESCE(
+      json_agg(
+        DISTINCT jsonb_build_object(
+          'group_id', g.id,
+          'group_name', g.group_name
+        )
+      ) FILTER (WHERE g.id IS NOT NULL),
+      '[]'
+    ) AS groups
+
+  FROM users u
+  LEFT JOIN group_users gu ON gu.user_id = u.id
+  LEFT JOIN access_groups g ON g.id = gu.group_id
+
+  ${whereClause}
+
+  GROUP BY u.id
+  ORDER BY ${sortColumn} ${sortDirection}
+  LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+`;
+
+    params.push(limitNum, offset);
+
+    // Count total rows (without pagination)
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM users
+      ${whereClause}
+    `;
+
+    // Execute queries
+    const dataResult = await pool.query(dataQuery, params);
+    const countResult = await pool.query(countQuery, params.slice(0, -2));
+
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    return res.status(200).json({
+      code: 0,
+      msg: "success",
+      data: dataResult.rows,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        total_pages: Math.ceil(total / limitNum),
+        has_next: pageNum < Math.ceil(total / limitNum),
+        has_prev: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error("fetchAllUsers error:", error);
+    return res.status(500).json({
+      code: 1,
+      msg: "internal server error",
+    });
+  }
+};
+
+
+
 
 exports.addUserData = async (req, res) => {
-    try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.json({ ...ERR.PARAM_ERROR, errors: errors.array() });
-        }
-        // const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = req.body;
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({ ...ERR.PARAM_ERROR, errors: errors.array() });
+    }
+    // const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = req.body;
 
-        const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = req.body;
-        // 1. Basic validation
-        if (!sn || !id || !name || !image_left || !image_right) {
-            return res.json({ code: 1, msg: "Missing required fields" });
-        }
+    const { sn, id, name, image_left, image_right, wiegand_flag = 0, admin_auth = 0 } = req.body;
+    // 1. Basic validation
+    if (!sn || !id || !name || !image_left || !image_right) {
+      return res.json({ code: 1, msg: "Missing required fields" });
+    }
 
-        // 2. Optional: Save raw files for debugging
-        const saveDir = path.join(__dirname, '../../uploads/palm_raw');
-        if (!fs.existsSync(saveDir)) {
-            fs.mkdirSync(saveDir, { recursive: true });
-        }
+    // 2. Optional: Save raw files for debugging
+    const saveDir = path.join(__dirname, '../../uploads/palm_raw');
+    if (!fs.existsSync(saveDir)) {
+      fs.mkdirSync(saveDir, { recursive: true });
+    }
 
-        const timestamp = Date.now();
-        const saveFile = (base64, side) => {
-            try {
-                const buffer = Buffer.from(base64.split('base64,')[1] || base64, 'base64');
-                const filename = `${sn}_${id}_${side}_${timestamp}.raw`;
-                fs.writeFileSync(path.join(saveDir, filename), buffer);
-                console.log(`Saved ${side} palm raw: ${filename}`);
-            } catch (e) {
-                console.warn("Save raw failed:", e.message);
-            }
-        };
+    const timestamp = Date.now();
+    const saveFile = (base64, side) => {
+      try {
+        const buffer = Buffer.from(base64.split('base64,')[1] || base64, 'base64');
+        const filename = `${sn}_${id}_${side}_${timestamp}.raw`;
+        fs.writeFileSync(path.join(saveDir, filename), buffer);
+        console.log(`Saved ${side} palm raw: ${filename}`);
+      } catch (e) {
+        console.warn("Save raw failed:", e.message);
+      }
+    };
 
-        saveFile(image_left, 'left');
-        saveFile(image_right, 'right');
+    saveFile(image_left, 'left');
+    saveFile(image_right, 'right');
 
-        // 3. Check if already registered on this device
-        const { rows: exists } = await pool.query(
-            `SELECT 1 FROM users WHERE sn = $1 AND user_id = $2 LIMIT 1`,
-            [sn, id]
-        );
+    // 3. Check if already registered on this device
+    const { rows: exists } = await pool.query(
+      `SELECT 1 FROM users WHERE sn = $1 AND user_id = $2 LIMIT 1`,
+      [sn, id]
+    );
 
-        if (exists.length > 0) {
-            return res.json({ code: 1, msg: "User already registered on this device" });
-        }
+    if (exists.length > 0) {
+      return res.json({ code: 1, msg: "User already registered on this device" });
+    }
 
-        // 4. Save to database (raw base64 - same as old system)
-        await pool.query(`
+    // 4. Save to database (raw base64 - same as old system)
+    await pool.query(`
       INSERT INTO users (
         sn,role, user_id, name,
         image_left, image_right,
@@ -185,28 +329,28 @@ exports.addUserData = async (req, res) => {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7,$8, NOW(), NOW())
     `, [sn, role = "inmate", id, name, image_left, image_right, wiegand_flag, admin_auth]);
 
-        console.log(`Palm registered: ${name} (${id}) on device ${sn}`);
-        return res.json({ code: 0, msg: "success" });
+    console.log(`Palm registered: ${name} (${id}) on device ${sn}`);
+    return res.json({ code: 0, msg: "success" });
 
-    } catch (error) {
-        console.log("<><>addUserData failed:", error);
-        return res.json({ code: 1, msg: "Registration failed" });
-    }
+  } catch (error) {
+    console.log("<><>addUserData failed:", error);
+    return res.json({ code: 1, msg: "Registration failed" });
+  }
 };
 
 exports.updateUsersPersmissions = async (req, res) => {
-    console.log("<><>working")
-    console.log("<><>req.body", req.body);
+  console.log("<><>working")
+  console.log("<><>req.body", req.body);
 
-    try {
-        const { wiegand_flag } = req.body;
-        const { id } = req.params
+  try {
+    const { wiegand_flag } = req.body;
+    const { id } = req.params
 
-        const userData  = await pool.query(`UPDATE users SET wiegand_flag=$1 ,updated_at = now() WHERE id = $2`,[wiegand_flag,id])
+    const userData = await pool.query(`UPDATE users SET wiegand_flag=$1 ,updated_at = now() WHERE id = $2`, [wiegand_flag, id])
 
-        return res.json({status:true,message:"updated successfully"});
+    return res.json({ status: true, message: "updated successfully" });
 
-    } catch (error) {
-console.log("<><>error",error)
-    }
+  } catch (error) {
+    console.log("<><>error", error)
+  }
 };

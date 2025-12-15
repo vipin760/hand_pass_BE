@@ -8,6 +8,7 @@ routes.get("/",groupController.getAllAccessGroups)
 // add user to group
 routes.post('/members',groupController.addUserToGroup)
 routes.get('/members',groupController.getAllGroupMembersWithNames)
+routes.post('/add-group',groupController.addUserToMultipleGroups)
 
 // group rules
 routes.post('/rules',groupController.createAccessRule)

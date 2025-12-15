@@ -794,6 +794,101 @@ exports.addUserToGroup = async (req, res) => {
   }
 };
 
+exports.addUserToMultipleGroups = async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { user_id, group_ids } = req.body;
+
+    // Basic validation
+    if (!user_id || !Array.isArray(group_ids) || group_ids.length === 0) {
+      return res.status(400).json({
+        code: 1,
+        msg: "user_id and group_ids array are required",
+      });
+    }
+
+    // UUID validation
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (!uuidRegex.test(user_id) || group_ids.some(id => !uuidRegex.test(id))) {
+      return res.status(400).json({
+        code: 1,
+        msg: "Invalid UUID format in user_id or group_ids",
+      });
+    }
+
+    await client.query("BEGIN");
+
+    /** 1️⃣ Check user exists */
+    const userExist = await client.query(
+      `SELECT id FROM users WHERE id = $1`,
+      [user_id]
+    );
+
+    if (!userExist.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        code: 1,
+        msg: "User not found",
+      });
+    }
+
+    /** 2️⃣ Check all groups exist */
+    const groupResult = await client.query(
+      `
+      SELECT id 
+      FROM access_groups 
+      WHERE id = ANY($1::uuid[])
+      `,
+      [group_ids]
+    );
+
+    if (groupResult.rows.length !== group_ids.length) {
+      const foundIds = groupResult.rows.map(r => r.id);
+      const missingGroups = group_ids.filter(id => !foundIds.includes(id));
+
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        code: 1,
+        msg: "Some groups do not exist",
+        missing_groups: missingGroups,
+      });
+    }
+
+    /** 3️⃣ Bulk insert */
+    const insertQuery = `
+      INSERT INTO group_users (group_id, user_id, created_at)
+      SELECT unnest($1::uuid[]), $2, NOW()
+      ON CONFLICT (group_id, user_id) DO NOTHING
+      RETURNING group_id, user_id, created_at
+    `;
+
+    const result = await client.query(insertQuery, [group_ids, user_id]);
+
+    await client.query("COMMIT");
+
+    return res.json({
+      code: 0,
+      msg: "User added to groups successfully",
+      added_count: result.rowCount,
+      data: result.rows,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("addUserToMultipleGroups error:", error);
+
+    return res.status(500).json({
+      code: 1,
+      msg: "Server error",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+
 // src/controllers/group.controller.js
 exports.getAllGroupMembersWithNames = async (req, res) => {
   try {

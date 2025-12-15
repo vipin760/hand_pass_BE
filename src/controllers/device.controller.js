@@ -556,7 +556,7 @@ exports.deviceGetUsers = async (req, res) => {
         u.wiegand_flag,
         u.admin_auth,
         u.image_left,
-        u.image_right
+        u.image_rightx
       FROM group_users gu
       JOIN users u ON u.id = gu.user_id
       WHERE gu.group_id = $1
