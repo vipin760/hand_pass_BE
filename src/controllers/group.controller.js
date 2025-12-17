@@ -173,7 +173,8 @@ exports.getAllAccessGroups = async (req, res) => {
                'device_id', d.id,
                'device_name', d.device_name,
                'sn', d.sn,
-               'device_ip', d.device_ip
+               'device_ip', d.device_ip,
+               'group_name', ag.group_name
              )) AS devices
       FROM access_groups ag
       LEFT JOIN devices d ON ag.device_id = d.id

@@ -215,7 +215,8 @@ exports.fetchAllUsersWithGroup = async (req, res) => {
     COALESCE(
       json_agg(
         DISTINCT jsonb_build_object(
-          'group_id', g.id,
+          'group_id', gu.id,
+          'common_group', g.id,
           'group_name', g.group_name
         )
       ) FILTER (WHERE g.id IS NOT NULL),
