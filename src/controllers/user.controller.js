@@ -273,6 +273,42 @@ exports.fetchAllUsersWithGroup = async (req, res) => {
 };
 
 
+exports.deleteUsersWithGroup = async (req, res) => {
+  try {
+    const { id } = req.params; 
+
+    if (!id) {
+      return res.status(400).json({
+        code: 1,
+        msg: "User id is required"
+      });
+    }
+    const result = await pool.query(
+      `DELETE FROM users WHERE id = $1 RETURNING id, name, email`,
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        code: 1,
+        msg: "User not found"
+      });
+    }
+
+    return res.status(200).json({
+      code: 0,
+      msg: "User and related groups deleted successfully",
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("deleteUsersWithGroup error:", error);
+    return res.status(500).json({
+      code: 1,
+      msg: "Internal server error"
+    });
+  }
+};
 
 
 exports.addUserData = async (req, res) => {
@@ -340,14 +376,25 @@ exports.addUserData = async (req, res) => {
 };
 
 exports.updateUsersPersmissions = async (req, res) => {
-  console.log("<><>working")
-  console.log("<><>req.body", req.body);
-
   try {
     const { wiegand_flag } = req.body;
     const { id } = req.params
 
     const userData = await pool.query(`UPDATE users SET wiegand_flag=$1 ,updated_at = now() WHERE id = $2`, [wiegand_flag, id])
+
+    return res.json({ status: true, message: "updated successfully" });
+
+  } catch (error) {
+    console.log("<><>error", error)
+  }
+};
+
+exports.updateUsersDetails = async (req, res) => {
+  try {
+    const { name } = req.body;
+    const { id } = req.params
+
+    const userData = await pool.query(`UPDATE users SET name=$1 ,updated_at = now() WHERE id = $2`, [name, id])
 
     return res.json({ status: true, message: "updated successfully" });
 
