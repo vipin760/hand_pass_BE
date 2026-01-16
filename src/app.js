@@ -19,6 +19,7 @@ const connectDeviceRoutes = require("./routes/device.route");
 const groupRoutes = require("./routes/group.route");
 const usersRoutes = require("./routes/user.routes");
 const accessRoutes = require("./routes/report.routes");
+const dashboardRoutes = require("./routes/dashboard.route");
 const { restartDatabase } = require('./crone/deviceOfflineCron');
 
 app.use(express.json({ limit: "200mb" }));  
@@ -32,6 +33,7 @@ app.use("/api/upload",fileUploadRoutes)
 app.use("/api/group",groupRoutes)
 app.use("/api/users",usersRoutes)
 app.use("/api/report",accessRoutes)
+app.use("/api/dashboard",dashboardRoutes)
 
 // restartDatabase()
 

@@ -83,7 +83,7 @@ exports.fetchAllUsers = async (req, res) => {
     const dataQuery = `
       SELECT 
         id, name, email, role, sn, user_id,
-        image_left, image_right, wiegand_flag, admin_auth,
+         wiegand_flag, admin_auth,
         created_at, updated_at
       FROM users
       ${whereClause}
@@ -203,8 +203,6 @@ exports.fetchAllUsersWithGroup = async (req, res) => {
     u.role,
     u.sn,
     u.user_id,
-    u.image_left,
-    u.image_right,
     u.wiegand_flag,
     u.admin_auth,
     u.created_at,
@@ -272,6 +270,42 @@ exports.fetchAllUsersWithGroup = async (req, res) => {
   }
 };
 
+exports.fetchSingleUsersWithGroup = async (req, res) => {
+  try {
+    const { id } = req.params; 
+
+    if (!id) {
+      return res.status(400).json({
+        code: 1,
+        msg: "User id is required"
+      });
+    }
+    const result = await pool.query(
+      `SELECT * FROM users WHERE id = $1`,
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        code: 1,
+        msg: "User not found"
+      });
+    }
+
+    return res.status(200).json({
+      code: 0,
+      msg: "User and related groups fetch successfully",
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error("fetchUsersWithGroup error:", error);
+    return res.status(500).json({
+      code: 1,
+      msg: "Internal server error"
+    });
+  }
+};
 
 exports.deleteUsersWithGroup = async (req, res) => {
   try {
