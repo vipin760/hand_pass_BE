@@ -82,6 +82,23 @@ CREATE TABLE IF NOT EXISTS device_access_logs (
   updated_at TIMESTAMP DEFAULT now()                             -- Last update time
 );
 
+CREATE TABLE IF NOT EXISTS attendance_settings (
+  id SERIAL PRIMARY KEY,
+  work_start_time TIME NOT NULL,
+  work_end_time TIME NOT NULL,
+  weekly_holidays INT[] NOT NULL, 
+  is_active BOOLEAN DEFAULT true,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS attendance_holidays (
+  id SERIAL PRIMARY KEY,
+  holiday_date DATE NOT NULL UNIQUE,
+  reason TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+
 
 
     `);

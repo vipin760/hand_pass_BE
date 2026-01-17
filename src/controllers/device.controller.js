@@ -265,10 +265,6 @@ exports.updateDevice = async (req, res) => {
       });
     }
 
-    // Add updated_by + updated_at
-    setQuery += `updated_by = $${i}, `;
-    values.push(userId);
-    i++;
 
     setQuery += `updated_at = now()`;
 
@@ -893,7 +889,7 @@ exports.queryUsers1 = async (req, res) => {
   }
 };
 
-exports.queryUsers = async (req, res) => {
+exports.queryUsers2 = async (req, res) => {
   try {
     // 1️⃣ Validate SN
     if (!req.body || !req.body.sn) {
@@ -950,6 +946,86 @@ exports.queryUsers = async (req, res) => {
       `,
       [groupId]
     );
+
+    console.log("Users:", result.rows);
+
+    return res.json({
+      ...ERR.SUCCESS,
+      data: { idDataList: result.rows }
+    });
+
+  } catch (error) {
+    console.error("queryUsers error:", error);
+
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
+      msg: `Query failed: ${error.message}`
+    });
+  }
+};
+
+exports.queryUsers = async (req, res) => {
+  try {
+    console.log("<><>start fetching query")
+    if (!req.body || !req.body.sn) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required field: sn"
+      });
+    }
+
+    const { sn } = req.body;
+    const devRes = await pool.query(
+      `SELECT id FROM devices WHERE sn = $1`,
+      [sn]
+    );
+
+    if (devRes.rows.length === 0) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Device not found"
+      });
+    }
+
+    const deviceId = devRes.rows[0].id;
+    console.log("Device ID:", deviceId);
+    const groupRes = await pool.query(
+      `SELECT id FROM access_groups WHERE device_id = $1 LIMIT 1`,
+      [deviceId]
+    );
+
+    let result;
+
+    if (groupRes.rows.length > 0) {
+      const groupId = groupRes.rows[0].id;
+      console.log("Group ID:", groupId);
+
+      result = await pool.query(
+        `
+        SELECT 
+          u.user_id AS id,
+          u.wiegand_flag,
+          u.admin_auth
+        FROM group_users gu
+        JOIN users u ON u.id = gu.user_id
+        WHERE gu.group_id = $1
+        `,
+        [groupId]
+      );
+
+    } else {
+      console.log("No group found → returning all users");
+
+      result = await pool.query(
+        `
+        SELECT 
+          user_id AS id,
+          wiegand_flag,
+          admin_auth
+        FROM users
+        `
+      );
+    }
 
     console.log("Users:", result.rows);
 
