@@ -6,10 +6,11 @@ async function createTablesIfNotExist() {
   CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(100) NOT NULL,
-  email VARCHAR(100) UNIQUE,
+  email VARCHAR(100),
   password_hash TEXT,
   sn VARCHAR(50),
   user_id VARCHAR(100),
+  master_user_id VARCHAR(100),
   role VARCHAR(20) NOT NULL DEFAULT 'inmate' CHECK (role IN ('admin', 'superadmin', 'inmate', 'staff', 'guard')),
   image_left TEXT,
   image_right TEXT,
@@ -31,38 +32,6 @@ CREATE TABLE IF NOT EXISTS devices (
   updated_at TIMESTAMP DEFAULT now()
 );
 
-  -- device group create
-  CREATE TABLE  IF NOT EXISTS access_groups (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-  group_name VARCHAR(100) UNIQUE NOT NULL,
-  description TEXT,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP DEFAULT now(),
-  updated_at TIMESTAMP DEFAULT now()
-);
-
-CREATE TABLE  IF NOT EXISTS group_users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  group_id UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  is_allowed BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP DEFAULT now(),
-  UNIQUE (group_id, user_id)
-);
-
-CREATE TABLE  IF NOT EXISTS access_rules (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  group_id UUID NOT NULL REFERENCES access_groups(id) ON DELETE CASCADE,
-  rule_name VARCHAR(100),                -- e.g., "Weekday Shift", "Night Shift"
-  is_active BOOLEAN DEFAULT TRUE,
-  days JSONB,                            -- ["Mon", "Fri"]
-  start_time TIME NOT NULL,              -- "10:00"
-  end_time TIME NOT NULL,                -- "18:00"
-  allow_cross_midnight BOOLEAN DEFAULT FALSE,   -- TRUE if end < start
-  created_at TIMESTAMP DEFAULT now(),
-  updated_at TIMESTAMP DEFAULT now()
-);
 
 CREATE TABLE IF NOT EXISTS device_access_logs (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -129,7 +129,7 @@ exports.fetchAllUsers = async (req, res) => {
   }
 };
 
-exports.fetchAllUsersWithGroup = async (req, res) => {
+exports.fetchAllUsersWithGroup1 = async (req, res) => {
   try {
     const {
       page = 1,
@@ -270,9 +270,167 @@ exports.fetchAllUsersWithGroup = async (req, res) => {
   }
 };
 
+exports.fetchAllUsersWithGroup = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      search = '',
+      sortBy = 'created_at',
+      sortOrder = 'desc',
+      role
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100, parseInt(limit));
+    const offset = (pageNum - 1) * limitNum;
+    const orderDir = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    const params = [];
+    let idx = 1;
+
+    /* ---------- WHERE (applies to base users table) ---------- */
+    let whereClause = `WHERE master_user_id IS NOT NULL`;
+
+    if (search.trim()) {
+      whereClause += `
+        AND (
+          name ILIKE $${idx}
+          OR email ILIKE $${idx}
+        )
+      `;
+      params.push(`%${search.trim()}%`);
+      idx++;
+    }
+
+    if (role) {
+      whereClause += ` AND role = $${idx}`;
+      params.push(role);
+      idx++;
+    }
+
+    /* ---------- QUERY ---------- */
+    const query = `
+      SELECT
+        u.master_user_id,
+        u.id,
+        u.name,
+        u.email,
+        u.role,
+        u.wiegand_flag,
+        u.admin_auth,
+        u.created_at,
+        u.updated_at,
+
+        COALESCE(
+          json_agg(
+            DISTINCT jsonb_build_object(
+              'id', d.id,
+              'sn', d.sn,
+              'name', d.device_name,
+              'ip', d.device_ip,
+              'online', d.online_status,
+              'last_connect', d.last_connect_time,
+              'firmware', d.firmware_version
+            )
+          ) FILTER (WHERE d.id IS NOT NULL),
+          '[]'::json
+        ) AS devices,
+
+        COUNT(*) OVER() AS total_count
+
+      FROM (
+        /* ONE row per logical user */
+        SELECT DISTINCT ON (master_user_id)
+          id,
+          master_user_id,
+          name,
+          email,
+          role,
+          wiegand_flag,
+          admin_auth,
+          created_at,
+          updated_at
+        FROM users
+        ${whereClause}
+        ORDER BY master_user_id, created_at DESC
+      ) u
+
+      /* JOIN ALL device-related user rows */
+      LEFT JOIN users u_all
+        ON u_all.master_user_id = u.master_user_id
+
+      LEFT JOIN devices d
+        ON d.sn = u_all.sn
+
+      GROUP BY
+        u.master_user_id,
+        u.id,
+        u.name,
+        u.email,
+        u.role,
+        u.wiegand_flag,
+        u.admin_auth,
+        u.created_at,
+        u.updated_at
+
+      ORDER BY
+        ${
+          sortBy === 'name'  ? 'u.name' :
+          sortBy === 'email' ? 'u.email' :
+          sortBy === 'role'  ? 'u.role' :
+          'u.created_at'
+        } ${orderDir}
+
+      LIMIT $${idx} OFFSET $${idx + 1}
+    `;
+
+    params.push(limitNum, offset);
+
+    const { rows } = await pool.query(query, params);
+
+    const total = rows.length ? Number(rows[0].total_count) : 0;
+
+    return res.json({
+      success: true,
+      data: rows.map(r => ({
+        id: r.id,
+        master_user_id: r.master_user_id,
+        name: r.name,
+        email: r.email,
+        role: r.role,
+        wiegand_flag: r.wiegand_flag,
+        admin_auth: r.admin_auth,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        devices: r.devices
+      })),
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+        hasNext: pageNum * limitNum < total,
+        hasPrev: pageNum > 1
+      }
+    });
+
+  } catch (error) {
+    console.error("fetchAllUsersWithGroup error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+
+
+
+
 exports.fetchSingleUsersWithGroup = async (req, res) => {
   try {
-    const { id } = req.params; 
+    const { id } = req.params;
 
     if (!id) {
       return res.status(400).json({
@@ -309,7 +467,7 @@ exports.fetchSingleUsersWithGroup = async (req, res) => {
 
 exports.deleteUsersWithGroup = async (req, res) => {
   try {
-    const { id } = req.params; 
+    const { id } = req.params;
 
     if (!id) {
       return res.status(400).json({
@@ -391,7 +549,7 @@ exports.addUserData = async (req, res) => {
     }
 
     // 4. Save to database (raw base64 - same as old system)
-    await pool.query(`
+    const insertRes = await pool.query(`
       INSERT INTO users (
         sn,role, user_id, name,
         image_left, image_right,
@@ -399,6 +557,17 @@ exports.addUserData = async (req, res) => {
         created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7,$8, NOW(), NOW())
     `, [sn, role = "inmate", id, name, image_left, image_right, wiegand_flag, admin_auth]);
+
+    const generatedId = insertRes.rows[0].id;
+
+    await pool.query(
+      `
+  UPDATE users
+  SET master_user_id = $1
+  WHERE id = $2
+  `,
+      [generatedId, generatedId]
+    );
 
     console.log(`Palm registered: ${name} (${id}) on device ${sn}`);
     return res.json({ code: 0, msg: "success" });

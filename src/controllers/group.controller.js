@@ -128,13 +128,14 @@ exports.getAllAccessGroups1 = async (req, res) => {
     return res.status(500).json({ code: 1, msg: "server error" });
   }
 };
+
 exports.getAllAccessGroups = async (req, res) => {
   try {
     const {
       page = 1,
       limit = 10,
       search = "",
-      is_active,
+      online_status,
       sort_by = "created_at",
       sort_order = "desc"
     } = req.query;
@@ -143,85 +144,108 @@ exports.getAllAccessGroups = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
     const offset = (pageNum - 1) * limitNum;
 
-    const validSortColumns = ["group_name", "description", "is_active", "created_at", "updated_at", "id"];
-    const sortColumn = validSortColumns.includes(sort_by) ? sort_by : "created_at";
+    // Allowed sort columns
+    const validSortColumns = [
+      "device_name",
+      "sn",
+      "device_ip",
+      "online_status",
+      "last_connect_time",
+      "created_at",
+      "updated_at"
+    ];
+
+    const sortColumn = validSortColumns.includes(sort_by)
+      ? sort_by
+      : "created_at";
+
     const sortDirection = sort_order.toLowerCase() === "asc" ? "ASC" : "DESC";
 
     let whereConditions = [];
     let params = [];
     let paramIndex = 1;
 
+    /** 🔍 Search filter */
     if (search.trim()) {
-      whereConditions.push(`(group_name ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`);
+      whereConditions.push(`
+        (
+          device_name ILIKE $${paramIndex}
+          OR sn ILIKE $${paramIndex}
+          OR device_ip ILIKE $${paramIndex}
+        )
+      `);
       params.push(`%${search.trim()}%`);
       paramIndex++;
     }
 
-    if (is_active !== undefined) {
-      const activeBool = is_active === "true" || is_active === true;
-      whereConditions.push(`is_active = $${paramIndex}`);
-      params.push(activeBool);
+    /** 🔌 Online status filter */
+    if (online_status !== undefined) {
+      whereConditions.push(`online_status = $${paramIndex}`);
+      params.push(parseInt(online_status, 10));
       paramIndex++;
     }
 
-    const whereClause = whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
+    const whereClause =
+      whereConditions.length > 0
+        ? "WHERE " + whereConditions.join(" AND ")
+        : "";
 
-    // Fetch groups with device info
+    /** 📦 Data query */
     const dataQuery = `
-      SELECT ag.id, ag.group_name, ag.description, ag.is_active, ag.created_at, ag.updated_at,
-             json_agg(json_build_object(
-               'device_id', d.id,
-               'device_name', d.device_name,
-               'sn', d.sn,
-               'device_ip', d.device_ip,
-               'group_name', ag.group_name
-             )) AS devices
-      FROM access_groups ag
-      LEFT JOIN devices d ON ag.device_id = d.id
+      SELECT
+        id,
+        sn,
+        device_name,
+        device_ip,
+        online_status,
+        last_connect_time,
+        firmware_version,
+        created_at,
+        updated_at
+      FROM devices
       ${whereClause}
-      GROUP BY ag.id
       ORDER BY ${sortColumn} ${sortDirection}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
+
     params.push(limitNum, offset);
 
-    // Total count query
+    /** 🔢 Count query */
     const countQuery = `
       SELECT COUNT(*) AS total
-      FROM access_groups
+      FROM devices
       ${whereClause}
     `;
 
     const dataResult = await pool.query(dataQuery, params);
-    const countResult = await pool.query(countQuery, params.slice(0, -2));
-
-    const data = dataResult.rows.map(group => {
-      // Convert devices from array with null check
-      return {
-        ...group,
-        devices: group.devices[0].device_id ? group.devices : []
-      };
-    });
+    const countResult = await pool.query(
+      countQuery,
+      params.slice(0, paramIndex - 1)
+    );
 
     const total = parseInt(countResult.rows[0].total, 10);
+    const totalPages = Math.ceil(total / limitNum);
 
     return res.json({
       code: 0,
       msg: "success",
-      data,
+      data: dataResult.rows,
       pagination: {
         total,
         page: pageNum,
         limit: limitNum,
-        total_pages: Math.ceil(total / limitNum),
-        has_next: pageNum < Math.ceil(total / limitNum),
+        total_pages: totalPages,
+        has_next: pageNum < totalPages,
         has_prev: pageNum > 1
       }
     });
 
   } catch (error) {
-    console.error("getAllAccessGroups error:", error);
-    return res.status(500).json({ code: 1, msg: "server error" });
+    console.error("getAllDevices error:", error);
+    return res.status(500).json({
+      code: 1,
+      msg: "server error"
+    });
   }
 };
 
@@ -732,7 +756,7 @@ exports.getUsersByGroup = async (req, res) => {
 
 
 // src/controllers/group.controller.js
-exports.addUserToGroup = async (req, res) => {
+exports.addUserToGroup1 = async (req, res) => {
   try {
     const { group_id, user_id } = req.body;
 
@@ -795,7 +819,140 @@ exports.addUserToGroup = async (req, res) => {
   }
 };
 
-exports.addUserToMultipleGroups = async (req, res) => {
+exports.addUserToGroup = async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { group_id, user_id } = req.body;
+
+    if (!group_id || !user_id) {
+      return res.status(400).json({
+        code: 1,
+        msg: "group_id and user_id are required",
+      });
+    }
+
+    // UUID validation
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (!uuidRegex.test(group_id) || !uuidRegex.test(user_id)) {
+      return res.status(400).json({
+        code: 1,
+        msg: "Invalid group_id or user_id format",
+      });
+    }
+
+    await client.query("BEGIN");
+
+    // 1️⃣ Validate group + get device_sn
+    const groupRes = await client.query(
+      `
+      SELECT ag.id, d.sn
+      FROM access_groups ag
+      JOIN devices d ON d.id = ag.device_id
+      WHERE ag.id = $1
+      `,
+      [group_id]
+    );
+
+    if (groupRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        code: 1,
+        msg: "Group not found or device not linked",
+      });
+    }
+
+    const deviceSn = groupRes.rows[0].sn;
+
+    // 2️⃣ Validate user
+    const userRes = await client.query(
+      `SELECT * FROM users WHERE id = $1`,
+      [user_id]
+    );
+
+    if (userRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        code: 1,
+        msg: "User not found",
+      });
+    }
+
+    const user = userRes.rows[0];
+
+    // 3️⃣ Add user to group_users
+    const groupUserRes = await client.query(
+      `
+      INSERT INTO group_users (group_id, user_id, created_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (group_id, user_id) DO NOTHING
+      RETURNING group_id, user_id
+      `,
+      [group_id, user_id]
+    );
+
+    if (groupUserRes.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        code: 1,
+        msg: "User already exists in this group",
+      });
+    }
+
+    // 4️⃣ 🔥 DUPLICATE USER INTO device_users
+    await client.query(
+      `
+      INSERT INTO device_users (
+        master_user_id,
+        device_sn,
+        name,
+        wiegand_flag,
+        admin_auth,
+        image_left,
+        image_right,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, NULL, NULL, NOW())
+      ON CONFLICT (master_user_id, device_sn) DO NOTHING
+      `,
+      [
+        user.id,
+        deviceSn,
+        user.name,
+        user.wiegand_flag,
+        user.admin_auth
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    return res.json({
+      code: 0,
+      msg: "User added to group and duplicated for device successfully",
+      data: {
+        group_id,
+        user_id,
+        device_sn: deviceSn
+      }
+    });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("addUserToGroup error:", error);
+
+    return res.status(500).json({
+      code: 1,
+      msg: "Internal server error",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+
+exports.addUserToMultipleGroups1 = async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -888,6 +1045,156 @@ exports.addUserToMultipleGroups = async (req, res) => {
     client.release();
   }
 };
+
+exports.addUserToMultipleGroups = async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { user_id, group_ids } = req.body;
+    // user_id = users.id (MASTER row)
+
+    if (!user_id || !Array.isArray(group_ids) || group_ids.length === 0) {
+      return res.status(400).json({
+        code: 1,
+        msg: "user_id and group_ids array are required",
+      });
+    }
+
+    await client.query("BEGIN");
+
+    /* 1️⃣ Fetch MASTER user */
+    const userRes = await client.query(
+      `
+      SELECT
+        id,
+        master_user_id,
+        name,
+        email,
+        password_hash,
+        role,
+        image_left,
+        image_right,
+        wiegand_flag,
+        admin_auth
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [user_id]
+    );
+
+    if (userRes.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        code: 1,
+        msg: "User not found",
+      });
+    }
+
+    const user = userRes.rows[0];
+
+    /* 2️⃣ Fetch devices by device IDs */
+    const deviceRes = await client.query(
+      `
+      SELECT id, sn
+      FROM devices
+      WHERE id = ANY($1::uuid[])
+      `,
+      [group_ids]
+    );
+
+    if (deviceRes.rowCount !== group_ids.length) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        code: 1,
+        msg: "One or more devices not found",
+      });
+    }
+
+    const addedDevices = [];
+    const alreadyExistsDevices = [];
+
+    /* 3️⃣ Duplicate user per device */
+    for (const device of deviceRes.rows) {
+      const deviceSn = device.sn;
+
+      /* 3a️⃣ Check using master_user_id */
+      const existsRes = await client.query(
+        `
+        SELECT 1
+        FROM users
+        WHERE master_user_id = $1 AND sn = $2
+        `,
+        [user.master_user_id, deviceSn]
+      );
+
+      if (existsRes.rowCount > 0) {
+        alreadyExistsDevices.push(deviceSn);
+        continue;
+      }
+
+      /* 3b️⃣ Duplicate user (ONLY sn changes) */
+      await client.query(
+        `
+        INSERT INTO users (
+          name,
+          email,
+          password_hash,
+          sn,
+          user_id,
+          master_user_id,
+          role,
+          image_left,
+          image_right,
+          wiegand_flag,
+          admin_auth,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW()
+        )
+        `,
+        [
+          user.name,
+          user.email,
+          user.password_hash,
+          deviceSn,
+          user.user_id,            
+          user.master_user_id,     
+          user.role,
+          user.image_left,
+          user.image_right,
+          user.wiegand_flag,
+          user.admin_auth
+        ]
+      );
+
+      addedDevices.push(deviceSn);
+    }
+
+    await client.query("COMMIT");
+
+    return res.json({
+      code: 0,
+      msg: "User processed for devices successfully",
+      added_devices: addedDevices,
+      already_exists_devices: alreadyExistsDevices,
+    });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("addUserToMultipleGroups error:", error);
+    return res.status(500).json({
+      code: 1,
+      msg: "Server error",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+
 
 
 // src/controllers/group.controller.js
@@ -1148,9 +1455,10 @@ exports.dynamicUpdateMember = async (req, res) => {
   }
 };
 
-exports.deleteGroupMember = async (req, res) => {
+exports.deleteGroupMember1 = async (req, res) => {
   try {
     const { id } = req.params; // ← the group_users.id (UUID)
+    const { user_id } = req.query;
 
     if (!id) {
       return res.status(400).json({
@@ -1185,6 +1493,66 @@ exports.deleteGroupMember = async (req, res) => {
     return res.status(500).json({ code: 1, msg: "Server error" });
   }
 };
+
+exports.deleteGroupMember = async (req, res) => {
+  console.log("<><>working",req.query);
+  
+  const client = await pool.connect();
+
+  try {
+    const { id: deviceId } = req.params;  
+    const { user_id } = req.query;           
+    
+
+    if (!deviceId || !user_id) {
+      return res.status(400).json({
+        code: 1,
+        msg: "deviceId (param) and user_id (query) are required"
+      });
+    }
+
+    await client.query("BEGIN");
+
+    /** 3️⃣ Delete device-specific user record */
+    const userDeleteRes = await client.query(
+      `
+      DELETE FROM users
+      WHERE id = $1
+      RETURNING id, name, sn
+      `,
+      [ user_id]
+    );
+
+    await client.query("COMMIT");
+
+    if ( userDeleteRes.rowCount === 0) {
+      return res.status(404).json({
+        code: 1,
+        msg: "User not found on this device or group"
+      });
+    }
+
+    return res.json({
+      code: 0,
+      msg: "User removed from device and group successfully",
+      data: {
+        removed_from_device: userDeleteRes.rows
+      }
+    });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("deleteGroupMember error:", error);
+
+    return res.status(500).json({
+      code: 1,
+      msg: "Server error"
+    });
+  } finally {
+    client.release();
+  }
+};
+
 
 //////////////////group rules////////////////////////////////////////////////////
 // src/controllers/accessRule.controller.js
