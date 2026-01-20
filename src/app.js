@@ -23,8 +23,8 @@ const dashboardRoutes = require("./routes/dashboard.route");
 const holidayRoutes = require("./routes/holiday.route");
 const attendanceSettingsRoutes = require("./routes/attendanceSettings.routes");
 const { restartDatabase } = require('./crone/deviceOfflineCron');
-const { startAttendanceCron } = require('./crone/attendanceReminder');
-startAttendanceCron()
+// const { startAttendanceCron } = require('./crone/attendanceReminder');
+// startAttendanceCron()
 
 app.use(express.json({ limit: "200mb" }));  
 app.use(express.urlencoded({ limit: "200mb", extended: true }));

@@ -556,9 +556,11 @@ exports.addUserData = async (req, res) => {
         wiegand_flag, admin_auth,
         created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7,$8, NOW(), NOW())
+       RETURNING id
     `, [sn, role = "inmate", id, name, image_left, image_right, wiegand_flag, admin_auth]);
 
     const generatedId = insertRes.rows[0].id;
+console.log("<><>generatedId",generatedId);
 
     await pool.query(
       `

@@ -831,7 +831,7 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
-exports.queryUsers1 = async (req, res) => {
+exports.queryUsers = async (req, res) => {
   try {
     // ------------------------------------
     // 1. Validate Body
@@ -964,7 +964,7 @@ exports.queryUsers2 = async (req, res) => {
   }
 };
 
-exports.queryUsers = async (req, res) => {
+exports.queryUsers3 = async (req, res) => {
   try {
     console.log("<><>start fetching query")
     if (!req.body || !req.body.sn) {

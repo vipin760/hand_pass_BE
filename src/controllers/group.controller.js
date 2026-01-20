@@ -655,104 +655,130 @@ exports.getUsersByGroup = async (req, res) => {
     const {
       page = 1,
       limit = 10,
-      search = "",
-      sort_by = "created_at",
-      sort_order = "desc"
+      search = '',
+      role
     } = req.query;
+    const {id:device_id} = req.params
 
-    const { id: group_id } = req.params;
+    if (!device_id) {
+      return res.status(400).json({
+        code: 1,
+        msg: "device_id is required"
+      });
+    }
 
-    const pageNum = Math.max(1, parseInt(page, 10));
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const pageNum = Math.max(1, Number(page));
+    const limitNum = Math.min(100, Number(limit));
     const offset = (pageNum - 1) * limitNum;
 
-    // Map frontend sort keys to actual DB columns with aliases
-    const columnMap = {
-      name: "u.name",
-      email: "u.email",
-      created_at: "gu.created_at", // when user was added to group
-      updated_at: "gu.updated_at"
-    };
-    const sortColumn = columnMap[sort_by] || "gu.created_at";
-    const sortDirection = sort_order.toLowerCase() === "asc" ? "ASC" : "DESC";
+    /* 1️⃣ Get device SN from device_id */
+    const deviceRes = await pool.query(
+      `
+      SELECT sn,device_name
+      FROM devices
+      WHERE id = $1
+      `,
+      [device_id]
+    );
 
-    // Build WHERE clause
-    let whereConditions = [];
-    let params = [];
-    let paramIndex = 1;
-
-    if (group_id) {
-      whereConditions.push(`gu.group_id = $${paramIndex}`);
-      params.push(group_id);
-      paramIndex++;
+    if (deviceRes.rowCount === 0) {
+      return res.status(404).json({
+        code: 1,
+        msg: "Device not found"
+      });
     }
+
+    const deviceSn = deviceRes.rows[0].sn;
+
+    /* 2️⃣ Build filters */
+    const params = [];
+    let idx = 1;
+    let whereClause = `WHERE u.sn = $${idx}`;
+    params.push(deviceSn);
+    idx++;
 
     if (search.trim()) {
-      whereConditions.push(`(u.name ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex})`);
+      whereClause += `
+        AND (
+          u.name ILIKE $${idx}
+          OR u.email ILIKE $${idx}
+          OR u.user_id ILIKE $${idx}
+        )
+      `;
       params.push(`%${search.trim()}%`);
-      paramIndex++;
+      idx++;
     }
 
-    const whereClause = whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
+    if (role) {
+      whereClause += ` AND u.role = $${idx}`;
+      params.push(role);
+      idx++;
+    }
 
-    // Query users with group info
+    /* 3️⃣ Fetch users */
     const dataQuery = `
-      SELECT 
-        g.id AS group_id,
-        g.group_name,
-        g.description,
-        g.is_active,
-        u.id AS user_id,
+      SELECT
+        u.id,
         u.name,
         u.email,
+        u.user_id,
+        u.master_user_id,
         u.role,
+        u.sn,
         u.wiegand_flag,
         u.admin_auth,
-        gu.is_allowed,
-        gu.created_at AS added_at,
-        gu.id
-      FROM group_users gu
-      JOIN users u ON u.id = gu.user_id
-      JOIN access_groups g ON g.id = gu.group_id
+        u.created_at,
+        u.updated_at,
+        COUNT(*) OVER() AS total_count
+      FROM users u
       ${whereClause}
-      ORDER BY ${sortColumn} ${sortDirection}
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+      ORDER BY u.created_at DESC
+      LIMIT $${idx} OFFSET $${idx + 1}
     `;
+
     params.push(limitNum, offset);
 
-    // Query total count
-    const countQuery = `
-      SELECT COUNT(*) AS total
-      FROM group_users gu
-      JOIN users u ON u.id = gu.user_id
-      JOIN access_groups g ON g.id = gu.group_id
-      ${whereClause}
-    `;
+    const result = await pool.query(dataQuery, params);
 
-    const dataResult = await pool.query(dataQuery, params);
-    const countResult = await pool.query(countQuery, params.slice(0, -2));
-
-    const total = parseInt(countResult.rows[0].total, 10);
+    const rows = result.rows;
+    const total = rows.length ? Number(rows[0].total_count) : 0;
 
     return res.json({
       code: 0,
       msg: "success",
-      data: dataResult.rows,
+      device:deviceRes.rows,
+      data: rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        user_id: r.user_id,
+        master_user_id: r.master_user_id,
+        role: r.role,
+        sn: r.sn,
+        wiegand_flag: r.wiegand_flag,
+        admin_auth: r.admin_auth,
+        created_at: r.created_at,
+        updated_at: r.updated_at
+      })),
       pagination: {
         total,
         page: pageNum,
         limit: limitNum,
         total_pages: Math.ceil(total / limitNum),
-        has_next: pageNum < Math.ceil(total / limitNum),
+        has_next: pageNum * limitNum < total,
         has_prev: pageNum > 1
       }
     });
 
   } catch (error) {
     console.error("getUsersByGroup error:", error);
-    return res.status(500).json({ code: 1, msg: "server error" });
+    return res.status(500).json({
+      code: 1,
+      msg: "server error"
+    });
   }
 };
+
 
 
 // src/controllers/group.controller.js
@@ -1070,6 +1096,7 @@ exports.addUserToMultipleGroups = async (req, res) => {
         master_user_id,
         name,
         email,
+        user_id,
         password_hash,
         role,
         image_left,
@@ -1092,6 +1119,7 @@ exports.addUserToMultipleGroups = async (req, res) => {
     }
 
     const user = userRes.rows[0];
+    console.log("<><>user",user)
 
     /* 2️⃣ Fetch devices by device IDs */
     const deviceRes = await client.query(
