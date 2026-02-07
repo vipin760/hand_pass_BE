@@ -68,12 +68,21 @@ exports.deviceAccessReport = async (req, res) => {
 
     // ----- Main query -----
     const query = `
-      SELECT *
-      FROM device_access_logs
-      ${where}
-      ${orderBy}
-      ${pagination}
-    `;
+  SELECT 
+    dal.id,
+    dal.sn,
+    d.device_name,
+    dal.name,
+    dal.user_id,
+    dal.palm_type,
+    dal.device_date_time,
+    dal.created_at
+  FROM device_access_logs dal
+  LEFT JOIN devices d ON d.sn = dal.sn
+  ${where}
+  ${orderBy}
+  ${pagination}
+`;
 
     const rows = await pool.query(query, values);
     let data = rows.rows;
@@ -95,6 +104,7 @@ exports.deviceAccessReport = async (req, res) => {
         "id",
         "sn",
         "name",
+        "device_name",
         "user_id",
         "palm_type",
         "device_date_time",
