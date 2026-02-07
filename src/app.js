@@ -11,24 +11,50 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(morgan('dev'));
-app.use(express.json())
-app.use(cors());
 //routes
 const indexRoutes = require('./routes/index')
 const authRoutes = require("./routes/auth.route")
 const fileUploadRoutes = require('./routes/fileUpload.route')
 const connectDeviceRoutes = require("./routes/device.route");
+const groupRoutes = require("./routes/group.route");
+const usersRoutes = require("./routes/user.routes");
+const accessRoutes = require("./routes/report.routes");
+const dashboardRoutes = require("./routes/dashboard.route");
+const holidayRoutes = require("./routes/holiday.route");
+const attendanceSettingsRoutes = require("./routes/attendanceSettings.routes");
+const { restartDatabase } = require('./crone/deviceOfflineCron');
+// const { startAttendanceCron } = require('./crone/attendanceReminder');
+// startAttendanceCron()
 
-
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.json({ limit: "200mb" }));  
+app.use(express.urlencoded({ limit: "200mb", extended: true }));
+app.use(cors());
 
 app.use("/", indexRoutes);
+app.use("/v1",connectDeviceRoutes)
 app.use("/api/auth", authRoutes)
 app.use("/api/upload",fileUploadRoutes)
-app.use("/v1",connectDeviceRoutes)
+app.use("/api/group",groupRoutes)
+app.use("/api/users",usersRoutes)
+app.use("/api/report",accessRoutes)
+app.use("/api/dashboard",dashboardRoutes)
+app.use("/api/holiday",holidayRoutes)
+app.use("/api/attendance-settings",attendanceSettingsRoutes)
+
+// restartDatabase()
 
 
+app.use((err, req, res, next) => {
+  console.error("🔥 ERROR CAUGHT BY MIDDLEWARE 🔥");
+  console.error("Message:", err.message);
+  console.error("Stack:", err.stack);
+  console.error("REQ BODY:", req.body);
+  return res.status(500).json({
+    code: 500,
+    msg: "Internal Server Error",
+    error: err.message,
+  });
+});
 //error middleware
 app.use(errorMiddleare);
 
