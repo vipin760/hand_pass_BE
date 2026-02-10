@@ -138,3 +138,12 @@ exports.getAllSettings = async (_req, res) => {
     res.status(500).json({ msg: 'Internal server error' });
   }
 };
+
+// attendance report single userwise
+exports.getAttendanceReports = async(req ,res) =>{
+  try {
+    
+  } catch (error) {
+    return {status:false, message:"internal server down"}
+  }
+}

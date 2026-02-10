@@ -68,6 +68,25 @@ CREATE TABLE IF NOT EXISTS attendance_holidays (
 );
 
 
+CREATE TABLE IF NOT EXISTS wiegand_groups (    -- wiegand_groups
+  id VARCHAR(50) PRIMARY KEY, 
+  sn VARCHAR(50) NOT NULL,
+  start_time INT NOT NULL,
+  end_time INT NOT NULL,
+  weekdays INT NOT NULL,
+  del_flag BOOLEAN DEFAULT false,
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS user_wiegand_map (    -- user_wiegand_map
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sn VARCHAR(50) NOT NULL,
+  user_id VARCHAR(100) NOT NULL,
+  group_id VARCHAR(50),
+  del_flag BOOLEAN DEFAULT false,
+  updated_at TIMESTAMP DEFAULT now()
+);
+
 
 
     `);
@@ -81,3 +100,33 @@ CREATE TABLE IF NOT EXISTS attendance_holidays (
 
 
 module.exports = { createTablesIfNotExist };
+
+
+
+// CREATE TABLE IF NOT EXISTS wiegand_groups (
+//   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+//   sn VARCHAR(50) NOT NULL,                -- Device SN
+//   group_id VARCHAR(50) NOT NULL,          -- g1, g2, etc.
+//   timestamp BIGINT NOT NULL,              -- uint64 device sync timestamp
+//   del_flag BOOLEAN DEFAULT false,
+//   created_at TIMESTAMP DEFAULT NOW(),
+//   updated_at TIMESTAMP DEFAULT NOW(),
+
+//   UNIQUE (sn, group_id)
+// );
+
+// CREATE TABLE IF NOT EXISTS wiegand_group_time_configs (
+//   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+//   group_id VARCHAR(50) NOT NULL,
+//   sn VARCHAR(50) NOT NULL,
+
+//   start_time INT NOT NULL CHECK (start_time BETWEEN 0 AND 86399),
+//   end_time INT NOT NULL CHECK (end_time BETWEEN 0 AND 86399),
+//   weekdays INT NOT NULL,                  -- bitmask
+
+//   created_at TIMESTAMP DEFAULT NOW(),
+
+//   FOREIGN KEY (sn, group_id)
+//     REFERENCES wiegand_groups (sn, group_id)
+//     ON DELETE CASCADE
+// );

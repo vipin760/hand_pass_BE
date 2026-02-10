@@ -1334,3 +1334,73 @@ exports.queryBatchImportPath = async (req, res) => {
 
 
 
+// group management
+exports.queryWiegandGroup = async (req, res) => {
+  const { sn, device_timestamp } = req.body;
+
+  const result = await pool.query(`
+    SELECT id,
+           EXTRACT(EPOCH FROM updated_at) * 1000 AS timestamp,
+           del_flag,
+           start_time,
+           end_time,
+           weekdays
+    FROM wiegand_groups
+    WHERE sn = $1
+      AND updated_at > to_timestamp($2::bigint / 1000)
+    ORDER BY updated_at ASC
+  `, [sn, device_timestamp || 0]);
+
+  const groups = {};
+  result.rows.forEach(r => {
+    if (!groups[r.id]) {
+      groups[r.id] = {
+        id: r.id,
+        timestamp: String(r.timestamp),
+        del_flag: r.del_flag,
+        time_configs: []
+      };
+    }
+
+    if (!r.del_flag) {
+      groups[r.id].time_configs.push({
+        start: r.start_time,
+        end: r.end_time,
+        weekdays: r.weekdays
+      });
+    }
+  });
+
+  res.json({
+    code: 0,
+    msg: "success",
+    data: Object.values(groups)
+  });
+};
+
+exports.queryUserWiegand = async (req, res) => {
+  const { sn, device_timestamp } = req.body;
+
+  const result = await pool.query(`
+    SELECT user_id,
+           group_id,
+           del_flag,
+           EXTRACT(EPOCH FROM updated_at) * 1000 AS timestamp
+    FROM user_wiegand_map
+    WHERE sn = $1
+      AND updated_at > to_timestamp($2::bigint / 1000)
+    ORDER BY updated_at ASC
+  `, [sn, device_timestamp || 0]);
+
+  res.json({
+    code: 0,
+    msg: "success",
+    data: result.rows.map(r => ({
+      user_id: r.user_id,
+      timestamp: String(r.timestamp),
+      del_flag: r.del_flag,
+      ...(r.del_flag ? {} : { group_id: r.group_id })
+    }))
+  });
+};
+
