@@ -60,16 +60,21 @@ CREATE TABLE IF NOT EXISTS attendance_settings (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS attendance_holidays (
-  id SERIAL PRIMARY KEY,
-  holiday_date DATE NOT NULL UNIQUE,
-  reason TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS holiday_master (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  holiday_date DATE NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  type VARCHAR(30) DEFAULT 'PUBLIC',  -- PUBLIC, FESTIVAL, COMPANY
+  country VARCHAR(10) DEFAULT 'IN',
+  state VARCHAR(50),                  -- nullable for national holidays
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now(),
+  UNIQUE(holiday_date, country, state)
 );
 
-
 CREATE TABLE IF NOT EXISTS wiegand_groups (    -- wiegand_groups
-  id VARCHAR(50) PRIMARY KEY, 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
   sn VARCHAR(50) NOT NULL,
   start_time INT NOT NULL,
   end_time INT NOT NULL,
@@ -101,32 +106,3 @@ CREATE TABLE IF NOT EXISTS user_wiegand_map (    -- user_wiegand_map
 
 module.exports = { createTablesIfNotExist };
 
-
-
-// CREATE TABLE IF NOT EXISTS wiegand_groups (
-//   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-//   sn VARCHAR(50) NOT NULL,                -- Device SN
-//   group_id VARCHAR(50) NOT NULL,          -- g1, g2, etc.
-//   timestamp BIGINT NOT NULL,              -- uint64 device sync timestamp
-//   del_flag BOOLEAN DEFAULT false,
-//   created_at TIMESTAMP DEFAULT NOW(),
-//   updated_at TIMESTAMP DEFAULT NOW(),
-
-//   UNIQUE (sn, group_id)
-// );
-
-// CREATE TABLE IF NOT EXISTS wiegand_group_time_configs (
-//   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-//   group_id VARCHAR(50) NOT NULL,
-//   sn VARCHAR(50) NOT NULL,
-
-//   start_time INT NOT NULL CHECK (start_time BETWEEN 0 AND 86399),
-//   end_time INT NOT NULL CHECK (end_time BETWEEN 0 AND 86399),
-//   weekdays INT NOT NULL,                  -- bitmask
-
-//   created_at TIMESTAMP DEFAULT NOW(),
-
-//   FOREIGN KEY (sn, group_id)
-//     REFERENCES wiegand_groups (sn, group_id)
-//     ON DELETE CASCADE
-// );

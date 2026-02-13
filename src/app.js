@@ -39,7 +39,7 @@ app.use("/api/users",usersRoutes)
 app.use("/api/report",accessRoutes)
 app.use("/api/dashboard",dashboardRoutes)
 app.use("/api/holiday",holidayRoutes)
-app.use("/api/attendance-settings",attendanceSettingsRoutes)
+app.use("/api/attendance",attendanceSettingsRoutes)
 
 // restartDatabase()
 
