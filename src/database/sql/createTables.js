@@ -8,12 +8,14 @@ async function createTablesIfNotExist() {
   name VARCHAR(100) NOT NULL,
   email VARCHAR(100),
   password_hash TEXT,
+  refresh_token TEXT,
   sn VARCHAR(50),
   user_id VARCHAR(100),
   master_user_id VARCHAR(100),
   role VARCHAR(20) NOT NULL DEFAULT 'inmate' CHECK (role IN ('admin', 'superadmin', 'inmate', 'staff', 'guard')),
   image_left TEXT,
   image_right TEXT,
+  shift_id UUID REFERENCES shifts(id) ON DELETE SET NULL,
   wiegand_flag INT DEFAULT 0,
   admin_auth INT DEFAULT 0,
   created_at TIMESTAMP DEFAULT now(),
@@ -51,13 +53,18 @@ CREATE TABLE IF NOT EXISTS device_access_logs (
   updated_at TIMESTAMP DEFAULT now()                             -- Last update time
 );
 
-CREATE TABLE IF NOT EXISTS attendance_settings (
-  id SERIAL PRIMARY KEY,
-  work_start_time TIME NOT NULL,
-  work_end_time TIME NOT NULL,
-  weekly_holidays INT[] NOT NULL, 
+CREATE TABLE IF NOT EXISTS shifts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  shift_name VARCHAR(100) NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  grace_minutes INT DEFAULT 0,
+  weekly_off_days INT[] DEFAULT '{}',   -- 0=Sun,1=Mon...
+  late_mark_after INT DEFAULT 0,      -- minutes after start_time
+  half_day_after INT DEFAULT 0,       -- minutes after start_time
   is_active BOOLEAN DEFAULT true,
-  updated_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS holiday_master (
@@ -96,6 +103,8 @@ CREATE TABLE IF NOT EXISTS user_wiegand_map (    -- user_wiegand_map
 
     `);
 
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS refresh_token TEXT`);
+
     console.log("✅ Tables checked/created successfully.");
   } catch (err) {
     console.error("❌ Failed to create tables:", err);
@@ -105,4 +114,3 @@ CREATE TABLE IF NOT EXISTS user_wiegand_map (    -- user_wiegand_map
 
 
 module.exports = { createTablesIfNotExist };
-

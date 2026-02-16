@@ -375,12 +375,11 @@ exports.fetchAllUsersWithGroup = async (req, res) => {
         u.updated_at
 
       ORDER BY
-        ${
-          sortBy === 'name'  ? 'u.name' :
-          sortBy === 'email' ? 'u.email' :
-          sortBy === 'role'  ? 'u.role' :
-          'u.created_at'
-        } ${orderDir}
+        ${sortBy === 'name' ? 'u.name' :
+        sortBy === 'email' ? 'u.email' :
+          sortBy === 'role' ? 'u.role' :
+            'u.created_at'
+      } ${orderDir}
 
       LIMIT $${idx} OFFSET $${idx + 1}
     `;
@@ -547,20 +546,23 @@ exports.addUserData = async (req, res) => {
     if (exists.length > 0) {
       return res.json({ code: 1, msg: "User already registered on this device" });
     }
+    const defaultShift = await pool.query(
+      `SELECT id FROM shifts WHERE is_default = true LIMIT 1`
+    );
 
     // 4. Save to database (raw base64 - same as old system)
     const insertRes = await pool.query(`
       INSERT INTO users (
         sn,role, user_id, name,
         image_left, image_right,
+        shift_id,
         wiegand_flag, admin_auth,
         created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7,$8, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9, NOW(), NOW())
        RETURNING id
-    `, [sn, role = "inmate", id, name, image_left, image_right, wiegand_flag, admin_auth]);
+    `, [sn, role = "inmate", id, name, image_left, image_right,defaultShift.rows[0].id, wiegand_flag, admin_auth]);
 
     const generatedId = insertRes.rows[0].id;
-console.log("<><>generatedId",generatedId);
 
     await pool.query(
       `
@@ -596,14 +598,44 @@ exports.updateUsersPersmissions = async (req, res) => {
 
 exports.updateUsersDetails = async (req, res) => {
   try {
-    const { name } = req.body;
-    const { id } = req.params
+    const { name, email, shift_id } = req.body;
+    const { id } = req.params;
 
-    const userData = await pool.query(`UPDATE users SET name=$1 ,updated_at = now() WHERE id = $2`, [name, id])
+    // Optional: Validate shift exists if provided
+    if (shift_id) {
+      const shiftCheck = await pool.query(
+        `SELECT id FROM shifts WHERE id = $1 AND is_active = true`,
+        [shift_id]
+      );
 
-    return res.json({ status: true, message: "updated successfully" });
+      if (shiftCheck.rows.length === 0) {
+        return res.status(400).json({
+          status: false,
+          message: "Invalid or inactive shift_id"
+        });
+      }
+    }
+
+    await pool.query(
+      `UPDATE users 
+       SET name = COALESCE($1, name),
+           email = COALESCE($2, email),
+           shift_id = COALESCE($3, shift_id),
+           updated_at = now()
+       WHERE id = $4`,
+      [name || null, email || null, shift_id || null, id]
+    );
+
+    return res.json({
+      status: true,
+      message: "User updated successfully"
+    });
 
   } catch (error) {
-    console.log("<><>error", error)
+    return res.status(500).json({
+      status: false,
+      message: "Internal server error",
+      error: error.message
+    });
   }
 };
