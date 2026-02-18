@@ -21,9 +21,9 @@ router.post('/pass_list', deviceController.passList);
 router.post('/query_batch_import_path', deviceController.queryBatchImportPath);
 
 // group management
-// router.post('/query_wiegand_group', deviceController.queryWiegandGroup);
 router.post('/query_wiegand_group', deviceController.queryWiegandGroup);
 router.post('/query_user_wiegand', deviceController.queryUserWiegand);
+
 
 
 router.post("/connect", deviceController.connectDeviceController);

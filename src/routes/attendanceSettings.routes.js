@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const ctrl = require('../controllers/attendanceSettings.controller');
-
+const { authenticate } = require('../middleware/auth');
+router.use(authenticate)
 router.post('/settings', ctrl.addOrUpdateSettings);
 router.get('/settings', ctrl.getSettings);
 

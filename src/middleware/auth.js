@@ -2,8 +2,19 @@ const jwt = require("jsonwebtoken");
 const { sqlQueryFun } = require("../database/sql/sqlFunction");
 // Storekeeper, Jailor, Superintendent
 
+const getTokenFromRequest = (req) => {
+  const authHeader = req.header("Authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : null;
+
+  return req.cookies?.token || bearerToken || null;
+};
+
 exports.authenticate = async(req, res, next) => {
-  const token = req.header("Authorization")?.replace("Bearer ", "");
+  const token = getTokenFromRequest(req);
+  console.log("<><>token",token);
+  
   if (!token) {
     return res.status(401).json({ message: "Access denied. No token provided." });
   }

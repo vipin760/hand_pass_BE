@@ -1,7 +1,9 @@
 const express = require('express')
 const routes = express()
 const usersController = require('../controllers/user.controller');
+const { authenticate } = require('../middleware/auth');
 
+routes.use(authenticate)
 routes.get("/",usersController.fetchAllUsers)
 routes.get("/with-group",usersController.fetchAllUsersWithGroup)
 routes.delete("/:id",usersController.deleteUsersWithGroup)

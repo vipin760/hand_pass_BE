@@ -5,15 +5,6 @@ const fs = require('fs');
 const path = require('path');
 const ERR = require("../utils/errorCodes");
 
-exports.fetchAllUsers1 = async (req, res) => {
-  try {
-    const usersData = await pool.query('SELECT * FROM users')
-    return res.status(200).send({ status: true, data: usersData.rows })
-  } catch (error) {
-    return res.status(500).send({ status: false, message: "internal server down" })
-  }
-}
-
 exports.fetchAllUsers = async (req, res) => {
   try {
     const {
@@ -82,10 +73,12 @@ exports.fetchAllUsers = async (req, res) => {
     // Fetch users with sort + pagination
     const dataQuery = `
       SELECT 
-        id, name, email, role, sn, user_id,
-         wiegand_flag, admin_auth,
-        created_at, updated_at
-      FROM users
+        u.id, u.name, u.email, u.role, u.sn, u.user_id,
+         u.wiegand_flag, u.admin_auth,d.device_name,s.shift_name,
+        u.created_at, u.updated_at
+      FROM users u
+      LEFT JOIN devices d ON u.sn = d.sn
+      LEFT JOIN shifts s ON u.shift_id = s.id
       ${whereClause}
       ORDER BY ${sortColumn} ${sortDirection}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -423,10 +416,6 @@ exports.fetchAllUsersWithGroup = async (req, res) => {
   }
 };
 
-
-
-
-
 exports.fetchSingleUsersWithGroup = async (req, res) => {
   try {
     const { id } = req.params;
@@ -547,7 +536,7 @@ exports.addUserData = async (req, res) => {
       return res.json({ code: 1, msg: "User already registered on this device" });
     }
     const defaultShift = await pool.query(
-      `SELECT id FROM shifts WHERE is_default = true LIMIT 1`
+      `SELECT id FROM shifts WHERE is_active = true LIMIT 1`
     );
 
     // 4. Save to database (raw base64 - same as old system)

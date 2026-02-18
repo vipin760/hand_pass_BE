@@ -1,5 +1,6 @@
 const express = require('express')
 const cors = require('cors')
+const cookieParser = require('cookie-parser')
 const errorMiddleare = require('./middleware/error')
 const path = require('path')
 const morgan = require('morgan');
@@ -23,21 +24,53 @@ const dashboardRoutes = require("./routes/dashboard.route");
 const holidayRoutes = require("./routes/holiday.route");
 const attendanceSettingsRoutes = require("./routes/attendanceSettings.routes");
 const shiftRoutes = require("./routes/shift.route");
-const { restartDatabase } = require('./crone/deviceOfflineCron');
+const userWiegandRoutes = require("./routes/userWiegand.routes")
+const WiegandGroupRoutes = require("./routes/wiegandGroup.routes")
+// const { restartDatabase } = require('./crone/deviceOfflineCron');
 // const { startAttendanceCron } = require('./crone/attendanceReminder');
 // startAttendanceCron()
 
 app.use(express.json({ limit: "200mb" }));  
 app.use(express.urlencoded({ limit: "200mb", extended: true }));
+app.use(cookieParser());
+// const allowedOrigins = [
+//   "http://localhost:3000",
+//   "http://localhost:5173"
+// ];
+// app.use(
+//   cors({
+//     origin:allowedOrigins,
+//     credentials: true,
+//   })
+// );
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "https://localhost:5173",
+  "https://yourdomain.com",
+  "https://www.yourdomain.com"
+];
+
 app.use(
   cors({
-    origin: true,
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // allow Postman / mobile apps
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   })
 );
 
+
 app.use("/", indexRoutes);
 app.use("/v1",connectDeviceRoutes)
+app.use("/v1/api",userWiegandRoutes)
+app.use("/v1/api",WiegandGroupRoutes)
 app.use("/api/auth", authRoutes)
 app.use("/api/upload",fileUploadRoutes)
 app.use("/api/group",groupRoutes)

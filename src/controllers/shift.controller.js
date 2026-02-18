@@ -102,7 +102,7 @@ exports.getShift = async (req, res) => {
 
     return res.json({
       success: true,
-      data: result.rows[0]
+      data: result.rows
     });
 
   } catch (err) {

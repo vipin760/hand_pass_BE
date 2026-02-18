@@ -502,7 +502,7 @@ exports.deviceGetUsers1 = async (req, res) => {
   }
 };
 
-exports.deviceGetUsers = async (req, res) => {
+exports.deviceGetUsers1 = async (req, res) => {
   try {
     const { sn, page = 1, limit = 10, search = "", sortBy = "user_id", sortOrder = "ASC" } = req.body;
 
@@ -628,6 +628,121 @@ exports.deviceGetUsers = async (req, res) => {
   }
 };
 
+exports.deviceGetUsers = async (req, res) => {
+  try {
+    const {
+      sn,
+      page = 1,
+      limit = 10,
+      search = "",
+      sortBy = "user_id",
+      sortOrder = "ASC"
+    } = req.body;
+
+    if (!sn) {
+      return res.status(400).json({ code: 1, msg: "sn is required" });
+    }
+
+    const offset = (page - 1) * limit;
+
+    // ------------------------------------------
+    // 1️⃣ Get group IDs for this device
+    // ------------------------------------------
+    const groupRes = await pool.query(
+      `SELECT id FROM wiegand_groups WHERE sn = $1 AND del_flag = false`,
+      [sn]
+    );
+
+    if (groupRes.rowCount === 0) {
+      return res.json({ code: 1, msg: "No group found for this device" });
+    }
+
+    const groupIds = groupRes.rows.map(g => g.id);
+
+    // ------------------------------------------
+    // 2️⃣ Fetch users using user_wiegands mapping
+    // ------------------------------------------
+    let query = `
+      SELECT 
+        u.id,
+        u.user_id,
+        u.name,
+        u.wiegand_flag,
+        u.admin_auth
+      FROM user_wiegands uw
+      JOIN users u ON u.id = uw.user_id
+      WHERE uw.group_uuid = ANY($1)
+        AND uw.del_flag = false
+        AND u.del_flag = false
+    `;
+
+    let params = [groupIds];
+
+    // Search
+    if (search) {
+      params.push(`%${search}%`);
+      query += ` AND (u.name ILIKE $${params.length} OR u.user_id ILIKE $${params.length})`;
+    }
+
+    // Sorting
+    const validSortColumns = ["user_id", "name"];
+    const safeSortBy = validSortColumns.includes(sortBy) ? sortBy : "user_id";
+    const safeSortOrder = sortOrder.toUpperCase() === "DESC" ? "DESC" : "ASC";
+
+    query += ` ORDER BY u.${safeSortBy} ${safeSortOrder}`;
+
+    // Pagination
+    params.push(limit, offset);
+    query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+
+    const result = await pool.query(query, params);
+
+    // ------------------------------------------
+    // 3️⃣ Count total
+    // ------------------------------------------
+    let countQuery = `
+      SELECT COUNT(*)
+      FROM user_wiegands uw
+      JOIN users u ON u.id = uw.user_id
+      WHERE uw.group_uuid = ANY($1)
+        AND uw.del_flag = false
+        AND u.del_flag = false
+    `;
+
+    let countParams = [groupIds];
+
+    if (search) {
+      countParams.push(`%${search}%`);
+      countQuery += ` AND (u.name ILIKE $2 OR u.user_id ILIKE $2)`;
+    }
+
+    const countRes = await pool.query(countQuery, countParams);
+    const totalCount = parseInt(countRes.rows[0].count);
+
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: {
+        users: result.rows,
+        total: totalCount,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(totalCount / limit)
+      }
+    });
+
+  } catch (error) {
+    console.error("deviceGetUsers error:", error);
+    return res.status(500).json({
+      code: 1,
+      msg: "Server error",
+      error: error.message
+    });
+  }
+};
+
+
+
 
 
 
@@ -680,7 +795,7 @@ exports.getPassRecordsByDeviceSn = async (req, res) => {
   }
 };
 
-exports.connect = async (req, res) => {
+exports.connect1 = async (req, res) => {
   try {
     // -----------------------------
     // Validate request
@@ -763,6 +878,147 @@ exports.connect = async (req, res) => {
   }
 };
 
+exports.connect = async (req, res) => {
+  try {
+    // -----------------------------
+    // Validate request
+    // -----------------------------
+    if (!req.body || !req.body.sn) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        error: "missing sn field"
+      });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
+      });
+    }
+
+    const { sn } = req.body;
+
+    // -----------------------------
+    // Get Client IP
+    // -----------------------------
+    let clientIp = req.ip || req.connection.remoteAddress || null;
+
+    if (clientIp && clientIp.includes("::ffff:")) {
+      clientIp = clientIp.split("::ffff:")[1];
+    }
+
+    const currentTime = Date.now();
+    deviceLastConnectTime.set(sn, currentTime);
+
+    // -----------------------------
+    // Upsert Device
+    // -----------------------------
+    const checkDevice = await pool.query(
+      `SELECT id FROM devices WHERE sn = $1`,
+      [sn]
+    );
+
+    if (checkDevice.rowCount > 0) {
+      await pool.query(
+        `
+        UPDATE devices
+        SET online_status = 1,
+            device_ip = $1,
+            last_connect_time = NOW(),
+            updated_at = NOW()
+        WHERE sn = $2
+        `,
+        [clientIp, sn]
+      );
+    } else {
+      await pool.query(
+        `
+        INSERT INTO devices
+        (sn, online_status, device_ip, last_connect_time, created_at, updated_at)
+        VALUES
+        ($1, 1, $2, NOW(), NOW(), NOW())
+        `,
+        [sn, clientIp]
+      );
+    }
+
+    // -----------------------------
+    // 1️⃣ Users max updated_at (ms)
+    // -----------------------------
+    const userMaxResult = await pool.query(
+      `
+      SELECT COALESCE(
+        MAX(EXTRACT(EPOCH FROM updated_at) * 1000),
+        0
+      ) AS max_ts
+      FROM users
+      WHERE sn = $1
+      `,
+      [sn]
+    );
+
+    const register_timestamp =
+      Math.floor(userMaxResult.rows[0].max_ts || 0).toString();
+
+    // -----------------------------
+    // 2️⃣ Wiegand Groups max timestamp
+    // -----------------------------
+    const groupMaxResult = await pool.query(
+      `
+      SELECT COALESCE(MAX(timestamp), 0) AS max_ts
+      FROM wiegand_groups
+      WHERE sn = $1
+      `,
+      [sn]
+    );
+
+    const wiegand_group_timestamp =
+      groupMaxResult.rows[0].max_ts
+        ? groupMaxResult.rows[0].max_ts.toString()
+        : "0";
+
+    // -----------------------------
+    // 3️⃣ User Wiegand max timestamp
+    // -----------------------------
+    const userWiegandMaxResult = await pool.query(
+      `
+      SELECT COALESCE(MAX(timestamp), 0) AS max_ts
+      FROM user_wiegands
+      WHERE sn = $1
+      `,
+      [sn]
+    );
+
+    const user_wiegand_timestamp =
+      userWiegandMaxResult.rows[0].max_ts
+        ? userWiegandMaxResult.rows[0].max_ts.toString()
+        : "0";
+
+    // -----------------------------
+    // Final Response
+    // -----------------------------
+    return res.json({
+      ...ERR.SUCCESS,
+      register_timestamp,
+      wiegand_group_timestamp,
+      user_wiegand_timestamp
+    });
+
+  } catch (error) {
+    console.error("Device connect error:", error);
+
+    return res.json({
+      ...ERR.NETWORK_ERROR,
+      register_timestamp: "0",
+      wiegand_group_timestamp: "0",
+      user_wiegand_timestamp: "0"
+    });
+  }
+};
+
+
 exports.deleteUser = async (req, res) => {
   try {
     // ----------------------------------------
@@ -831,7 +1087,7 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
-exports.queryUsers = async (req, res) => {
+exports.queryUsers1 = async (req, res) => {
   try {
     // ------------------------------------
     // 1. Validate Body
@@ -889,9 +1145,11 @@ exports.queryUsers = async (req, res) => {
   }
 };
 
-exports.queryUsers2 = async (req, res) => {
+exports.queryUsers = async (req, res) => {
   try {
-    // 1️⃣ Validate SN
+    // ------------------------------------
+    // 1. Validate Body
+    // ------------------------------------
     if (!req.body || !req.body.sn) {
       return res.json({
         ...ERR.PARAM_ERROR,
@@ -899,147 +1157,63 @@ exports.queryUsers2 = async (req, res) => {
       });
     }
 
-    const { sn } = req.body;
-
-    // 2️⃣ Get Device ID
-    const devRes = await pool.query(
-      `SELECT id FROM devices WHERE sn = $1`,
-      [sn]
-    );
-
-    if (devRes.rows.length === 0) {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
       return res.json({
         ...ERR.PARAM_ERROR,
-        errors: "Device not found"
+        errors: errors.array()
       });
     }
 
-    const deviceId = devRes.rows[0].id;
-    console.log("Device ID:", deviceId);
+    const { sn, device_timestamp } = req.body;
 
-    // 3️⃣ Get the ONE group for this device
-    const groupRes = await pool.query(
-      `SELECT id FROM access_groups WHERE device_id = $1 LIMIT 1`,
-      [deviceId]
-    );
+    // Force numeric (avoid injection + type issue)
+    const deviceTs = parseInt(device_timestamp, 10) || 0;
 
-    if (groupRes.rows.length === 0) {
-      return res.json({
-        ...ERR.SUCCESS,
-        data: { idDataList: [] }
-      });
-    }
+    // ------------------------------------
+    // 2. Query Users (Only updated after device timestamp)
+    // ------------------------------------
+    const query = `
+      SELECT
+        user_id AS id,
+        wiegand_flag,
+        admin_auth,
+        del_flag,
+        CAST(EXTRACT(EPOCH FROM updated_at) * 1000 AS TEXT) AS timestamp
+      FROM users
+      WHERE sn = $1
+        AND del_flag = false
+        AND (EXTRACT(EPOCH FROM updated_at) * 1000) > $2
+      ORDER BY updated_at ASC
+    `;
 
-    const groupId = groupRes.rows[0].id;
-    console.log("Group ID:", groupId);
+    const result = await pool.query(query, [sn, deviceTs]);
 
-    // 4️⃣ Fetch users linked to THIS single group
-    const result = await pool.query(
-      `
-      SELECT 
-        u.user_id AS id,
-        u.wiegand_flag,
-        u.admin_auth
-      FROM group_users gu
-      JOIN users u ON u.id = gu.user_id
-      WHERE gu.group_id = $1
-      `,
-      [groupId]
-    );
+    console.log("Query result users →", result.rows);
 
-    console.log("Users:", result.rows);
+    // ------------------------------------
+    // 3. Format Output (Safety layer)
+    // ------------------------------------
+    const formattedUsers = result.rows.map(user => ({
+      ...user,
+      timestamp: user.timestamp || "0",
+      del_flag: !!user.del_flag
+    }));
 
+    // ------------------------------------
+    // 4. Return Response
+    // ------------------------------------
     return res.json({
       ...ERR.SUCCESS,
-      data: { idDataList: result.rows }
+      data: { idDataList: formattedUsers }
     });
 
   } catch (error) {
-    console.error("queryUsers error:", error);
+    console.error("Query users error:", error);
 
     return res.json({
       ...ERR.DB_QUERY_ERROR,
-      msg: `Query failed: ${error.message}`
-    });
-  }
-};
-
-exports.queryUsers3 = async (req, res) => {
-  try {
-    console.log("<><>start fetching query")
-    if (!req.body || !req.body.sn) {
-      return res.json({
-        ...ERR.PARAM_ERROR,
-        errors: "Missing required field: sn"
-      });
-    }
-
-    const { sn } = req.body;
-    const devRes = await pool.query(
-      `SELECT id FROM devices WHERE sn = $1`,
-      [sn]
-    );
-
-    if (devRes.rows.length === 0) {
-      return res.json({
-        ...ERR.PARAM_ERROR,
-        errors: "Device not found"
-      });
-    }
-
-    const deviceId = devRes.rows[0].id;
-    console.log("Device ID:", deviceId);
-    const groupRes = await pool.query(
-      `SELECT id FROM access_groups WHERE device_id = $1 LIMIT 1`,
-      [deviceId]
-    );
-
-    let result;
-
-    if (groupRes.rows.length > 0) {
-      const groupId = groupRes.rows[0].id;
-      console.log("Group ID:", groupId);
-
-      result = await pool.query(
-        `
-        SELECT 
-          u.user_id AS id,
-          u.wiegand_flag,
-          u.admin_auth
-        FROM group_users gu
-        JOIN users u ON u.id = gu.user_id
-        WHERE gu.group_id = $1
-        `,
-        [groupId]
-      );
-
-    } else {
-      console.log("No group found → returning all users");
-
-      result = await pool.query(
-        `
-        SELECT 
-          user_id AS id,
-          wiegand_flag,
-          admin_auth
-        FROM users
-        `
-      );
-    }
-
-    console.log("Users:", result.rows);
-
-    return res.json({
-      ...ERR.SUCCESS,
-      data: { idDataList: result.rows }
-    });
-
-  } catch (error) {
-    console.error("queryUsers error:", error);
-
-    return res.json({
-      ...ERR.DB_QUERY_ERROR,
-      msg: `Query failed: ${error.message}`
+      msg: `User query failed: ${error.message}`
     });
   }
 };
@@ -1048,7 +1222,8 @@ exports.queryUsers3 = async (req, res) => {
 
 
 
-exports.checkRegistration = async (req, res) => {
+
+exports.checkRegistration1 = async (req, res) => {
   try {
     // ----------------------------------------
     // 1️⃣ Parameter validation (sn and id required)
@@ -1108,7 +1283,54 @@ exports.checkRegistration = async (req, res) => {
   }
 };
 
-exports.queryUserImages = async (req, res) => {
+exports.checkRegistration = async (req, res) => {
+  try {
+    if (!req.body || !req.body.sn || !req.body.id) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required fields: sn, id"
+      });
+    }
+
+    const { sn, id } = req.body;
+
+    const result = await pool.query(
+      `
+      SELECT EXISTS (
+        SELECT 1
+        FROM user_wiegands uw
+        JOIN users u ON u.id = uw.user_id
+        JOIN wiegand_groups wg ON wg.id = uw.group_uuid
+        WHERE wg.sn = $1
+          AND u.user_id = $2
+          AND uw.del_flag = false
+          AND u.del_flag = false
+          AND wg.del_flag = false
+      ) AS is_registered
+      `,
+      [sn, id]
+    );
+    
+
+    return res.json({
+      ...ERR.SUCCESS,
+      data: {
+        is_registered: result.rows[0].is_registered
+      }
+    });
+
+  } catch (error) {
+    console.error("Check registration error:", error);
+    return res.json({
+      ...ERR.DB_CHECK_REG_ERROR,
+      data: {}
+    });
+  }
+};
+
+
+
+exports.queryUserImages1 = async (req, res) => {
   try {
     // 1️⃣ Validate request body
     if (!req.body || !req.body.sn || !req.body.id) {
@@ -1170,8 +1392,77 @@ exports.queryUserImages = async (req, res) => {
   }
 };
 
+exports.queryUserImages = async (req, res) => {
+  try {
+    // 1️⃣ Validate request body
+    if (!req.body || !req.body.sn || !req.body.id) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required fields: sn, id"
+      });
+    }
 
-exports.firmwareUpgrade = async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
+      });
+    }
+
+    const { sn, id: studentId } = req.body;
+
+    // 2️⃣ Query using proper device-user mapping
+    const result = await pool.query(
+      `
+      SELECT u.name, u.image_left, u.image_right
+      FROM user_wiegands uw
+      JOIN users u ON u.id = uw.user_id
+      JOIN wiegand_groups wg ON wg.id = uw.group_uuid
+      WHERE wg.sn = $1
+        AND u.user_id = $2
+        AND uw.del_flag = false
+        AND u.del_flag = false
+        AND wg.del_flag = false
+      LIMIT 1
+      `,
+      [sn, studentId]
+    );
+
+    // 3️⃣ Handle "user not found"
+    if (result.rows.length === 0) {
+      return res.json({
+        ...ERR.DB_ID_NOT_EXIST,
+        data: {},
+        msg: `Student ID ${studentId} is not registered under device ${sn} (Error Code 30006, Document 3.1)`
+      });
+    }
+
+    const user = result.rows[0];
+
+    // 4️⃣ Return success
+    return res.json({
+      ...ERR.SUCCESS,
+      data: {
+        name: user.name,
+        image_left: user.image_left,
+        image_right: user.image_right
+      }
+    });
+
+  } catch (error) {
+    console.error("Query user images error:", error);
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
+      data: {},
+      msg: `Database query failed: ${error.message} (Error Code 30004, Document 3.1)`
+    });
+  }
+};
+
+
+
+exports.firmwareUpgrade1 = async (req, res) => {
   try {
     // -------------------------------
     // 1. Validate Request Body
@@ -1257,7 +1548,119 @@ exports.firmwareUpgrade = async (req, res) => {
   }
 };
 
-exports.passList = async (req, res) => {
+exports.firmwareUpgrade = async (req, res) => {
+  const interfaceName = "Firmware Upgrade Interface (Document 2.7)";
+  const now = () => new Date().toLocaleString();
+
+  try {
+    console.log(`[${now()}] [${interfaceName}] Request:`, req.body);
+
+    // -------------------------------
+    // 1️⃣ Validate Request
+    // -------------------------------
+    if (!req.body || !req.body.sn || !req.body.version) {
+      console.warn(`[${now()}] [${interfaceName}] Missing sn or version`);
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required fields: sn, version"
+      });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.warn(`[${now()}] [${interfaceName}] Validation failed`, errors.array());
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
+      });
+    }
+
+    const { sn, version } = req.body;
+
+    console.log(`[${now()}] [${interfaceName}] Checking firmware for SN: ${sn}, Current Version: ${version}`);
+
+    // -------------------------------
+    // 2️⃣ Query system_info
+    // -------------------------------
+    const result = await pool.query(
+      `
+      SELECT latest_firmware_version, firmware_url
+      FROM system_info
+      WHERE sn = $1
+      LIMIT 1
+      `,
+      [sn]
+    );
+
+    if (result.rows.length === 0) {
+      console.warn(`[${now()}] [${interfaceName}] No firmware config found for device ${sn}`);
+      return res.json({
+        ...ERR.SUCCESS,
+        data: {
+          need: false,
+          url: ""
+        }
+      });
+    }
+
+    const { latest_firmware_version, firmware_url } = result.rows[0];
+
+    console.log(`[${now()}] [${interfaceName}] Latest version: ${latest_firmware_version}`);
+
+    // -------------------------------
+    // 3️⃣ Safe Semantic Version Compare
+    // -------------------------------
+    const safeParse = (v) => {
+      if (!v || typeof v !== "string") return [0, 0, 0];
+      return v.split(".").map(n => Number(n) || 0);
+    };
+
+    const pad = (arr) => [...arr, 0, 0].slice(0, 3);
+
+    const currentVer = pad(safeParse(version));
+    const latestVer = pad(safeParse(latest_firmware_version));
+
+    const needUpdate =
+      latestVer[0] > currentVer[0] ||
+      (latestVer[0] === currentVer[0] && latestVer[1] > currentVer[1]) ||
+      (latestVer[0] === currentVer[0] &&
+        latestVer[1] === currentVer[1] &&
+        latestVer[2] > currentVer[2]);
+
+    console.log(`[${now()}] [${interfaceName}] Version Compare`, {
+      current: currentVer,
+      latest: latestVer,
+      needUpdate
+    });
+
+    // -------------------------------
+    // 4️⃣ Return Response
+    // -------------------------------
+    const response = {
+      ...ERR.SUCCESS,
+      data: {
+        need: needUpdate,
+        url: needUpdate ? firmware_url : ""
+      }
+    };
+
+    console.log(`[${now()}] [${interfaceName}] Response:`, response);
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error(`[${now()}] [${interfaceName}] Exception:`, error);
+
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
+      data: {},
+      msg: `Firmware upgrade check failed: ${error.message}`
+    });
+  }
+};
+
+
+exports.passList1 = async (req, res) => {
   try {
     // 1️⃣ Parameter validation (sn, name, id, type, device_date_time are required)
     console.log('Access record request body:', req.body);
@@ -1291,6 +1694,94 @@ exports.passList = async (req, res) => {
     return res.json({ ...ERR.DB_INSERT_ERROR, msg: `Database insert failed: ${error.message}` });
   }
 };
+
+exports.passList = async (req, res) => {
+  try {
+    console.log("Access record request body:", req.body);
+
+    // -----------------------------
+    // 1️⃣ Validate required fields
+    // -----------------------------
+    const { sn, name, id: userId, type: palmType, device_date_time } = req.body;
+
+    if (!sn || !name || !userId || !palmType || !device_date_time) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Missing required fields: sn, name, id, type, device_date_time"
+      });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: errors.array()
+      });
+    }
+
+    // -----------------------------
+    // 2️⃣ Validate palm type
+    // -----------------------------
+    if (!["left", "right"].includes(palmType)) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Invalid palm type. Must be 'left' or 'right'"
+      });
+    }
+
+    // -----------------------------
+    // 3️⃣ Validate datetime format
+    // -----------------------------
+    const parsedDate = new Date(device_date_time);
+    if (isNaN(parsedDate.getTime())) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: "Invalid device_date_time format"
+      });
+    }
+
+    // -----------------------------
+    // 4️⃣ Optional: Check device exists
+    // -----------------------------
+    const deviceCheck = await pool.query(
+      `SELECT 1 FROM devices WHERE sn = $1 LIMIT 1`,
+      [sn]
+    );
+
+    if (deviceCheck.rowCount === 0) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        errors: `Device ${sn} not registered`
+      });
+    }
+
+    // -----------------------------
+    // 5️⃣ Insert access record
+    // -----------------------------
+    await pool.query(
+      `
+      INSERT INTO device_access_logs 
+        (sn, name, user_id, palm_type, device_date_time)
+      VALUES ($1, $2, $3, $4, $5)
+      `,
+      [sn, name, userId, palmType, parsedDate]
+    );
+
+    // -----------------------------
+    // 6️⃣ Return success
+    // -----------------------------
+    return res.json({ ...ERR.SUCCESS });
+
+  } catch (error) {
+    console.error("Insert access record error:", error);
+
+    return res.json({
+      ...ERR.DB_INSERT_ERROR,
+      msg: `Database insert failed: ${error.message}`
+    });
+  }
+};
+
 
 exports.queryBatchImportPath = async (req, res) => {
   try {
@@ -1336,71 +1827,162 @@ exports.queryBatchImportPath = async (req, res) => {
 
 // group management
 exports.queryWiegandGroup = async (req, res) => {
-  const { sn, device_timestamp } = req.body;
+  try {
+    // -----------------------------
+    // 1️⃣ Validate parameters
+    // -----------------------------
+    const { sn, device_timestamp } = req.body;
 
-  const result = await pool.query(`
-    SELECT id,
-           EXTRACT(EPOCH FROM updated_at) * 1000 AS timestamp,
-           del_flag,
-           start_time,
-           end_time,
-           weekdays
-    FROM wiegand_groups
-    WHERE sn = $1
-      AND updated_at > to_timestamp($2::bigint / 1000)
-    ORDER BY updated_at ASC
-  `, [sn, device_timestamp || 0]);
-
-  const groups = {};
-  result.rows.forEach(r => {
-    if (!groups[r.id]) {
-      groups[r.id] = {
-        id: r.id,
-        timestamp: String(r.timestamp),
-        del_flag: r.del_flag,
-        time_configs: []
-      };
-    }
-
-    if (!r.del_flag) {
-      groups[r.id].time_configs.push({
-        start: r.start_time,
-        end: r.end_time,
-        weekdays: r.weekdays
+    if (!sn || device_timestamp === undefined) {
+      return res.json({
+        code: 400,
+        msg: "Invalid parameters",
+        data: { idDataList: [] }
       });
     }
-  });
 
-  res.json({
-    code: 0,
-    msg: "success",
-    data: Object.values(groups)
-  });
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.warn("Validation failed:", errors.array());
+      return res.json({
+        code: 400,
+        msg: "Invalid parameters",
+        data: { idDataList: [] }
+      });
+    }
+
+    const deviceTs = Number(device_timestamp) || 0;
+
+    // -----------------------------
+    // 2️⃣ Query wiegand_groups
+    // -----------------------------
+    const result = await pool.query(
+      `
+      SELECT group_id, timestamp, del_flag, time_configs
+      FROM wiegand_groups
+      WHERE sn = $1
+        AND timestamp > $2
+      ORDER BY timestamp ASC
+      `,
+      [sn, deviceTs]
+    );
+
+    // -----------------------------
+    // 3️⃣ Format result
+    // -----------------------------
+    const idDataList = result.rows.map(group => {
+      const { group_id, timestamp, del_flag, time_configs } = group;
+
+      const record = {
+        id: group_id,
+        timestamp: timestamp.toString(),
+        del_flag: !!del_flag
+      };
+
+      if (!del_flag) {
+        record.time_configs = time_configs;
+      }
+
+      return record;
+    });
+
+    // -----------------------------
+    // 4️⃣ Return response
+    // -----------------------------
+    return res.json({
+      code: 0,
+      msg: "success",
+      data: {
+        idDataList
+      }
+    });
+
+  } catch (error) {
+    console.error("Query wiegand groups failed:", error);
+    return res.json({
+      code: 500,
+      msg: "Database query failed",
+      data: { idDataList: [] }
+    });
+  }
 };
 
 exports.queryUserWiegand = async (req, res) => {
-  const { sn, device_timestamp } = req.body;
+  try {
+    // -----------------------------
+    // 1️⃣ Validate parameters
+    // -----------------------------
+    const { sn, device_timestamp } = req.body;
 
-  const result = await pool.query(`
-    SELECT user_id,
-           group_id,
-           del_flag,
-           EXTRACT(EPOCH FROM updated_at) * 1000 AS timestamp
-    FROM user_wiegand_map
-    WHERE sn = $1
-      AND updated_at > to_timestamp($2::bigint / 1000)
-    ORDER BY updated_at ASC
-  `, [sn, device_timestamp || 0]);
+    if (!sn || device_timestamp === undefined) {
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        data: { idDataList: [] }
+      });
+    }
 
-  res.json({
-    code: 0,
-    msg: "success",
-    data: result.rows.map(r => ({
-      user_id: r.user_id,
-      timestamp: String(r.timestamp),
-      del_flag: r.del_flag,
-      ...(r.del_flag ? {} : { group_id: r.group_id })
-    }))
-  });
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.warn("Validation failed:", errors.array());
+      return res.json({
+        ...ERR.PARAM_ERROR,
+        data: { idDataList: [] }
+      });
+    }
+
+    const deviceTs = Number(device_timestamp) || 0;
+
+    // -----------------------------
+    // 2️⃣ Query user_wiegands
+    // -----------------------------
+    const result = await pool.query(
+      `
+      SELECT user_id, timestamp, del_flag, group_id
+      FROM user_wiegands
+      WHERE sn = $1
+        AND timestamp > $2
+      ORDER BY timestamp ASC
+      `,
+      [sn, deviceTs]
+    );
+
+    // -----------------------------
+    // 3️⃣ Format response
+    // -----------------------------
+    const formattedData = result.rows.map(item => {
+      const record = {
+        user_id: item.user_id,
+        timestamp: item.timestamp.toString(),
+        del_flag: !!item.del_flag
+      };
+
+      // Only include group_id if not deleted
+      if (!item.del_flag) {
+        record.group_id = item.group_id;
+      }
+
+      return record;
+    });
+
+    // -----------------------------
+    // 4️⃣ Return response
+    // -----------------------------
+    return res.json({
+      ...ERR.SUCCESS,
+      data: {
+        idDataList: formattedData
+      }
+    });
+
+  } catch (error) {
+    console.error("Query user wiegand failed:", error);
+    return res.json({
+      ...ERR.DB_QUERY_ERROR,
+      data: { idDataList: [] }
+    });
+  }
 };
+
+
+
 
