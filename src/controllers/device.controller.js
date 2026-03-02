@@ -1417,7 +1417,7 @@ exports.queryUserImages = async (req, res) => {
       `
       SELECT u.name, u.image_left, u.image_right
       FROM user_wiegands uw
-      JOIN users u ON u.id = uw.user_id
+      JOIN users u ON u.user_id = uw.user_id
       JOIN wiegand_groups wg ON wg.id = uw.group_uuid
       WHERE wg.sn = $1
         AND u.user_id = $2

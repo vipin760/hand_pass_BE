@@ -178,7 +178,6 @@ exports.getWiegandGroups = async (req, res) => {
         wg.id,
         wg.group_id,
         wg.sn,
-        wg.user_id,
         wg.timestamp,
         wg.del_flag,
         wg.time_configs,

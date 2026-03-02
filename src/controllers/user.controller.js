@@ -535,21 +535,22 @@ exports.addUserData = async (req, res) => {
     if (exists.length > 0) {
       return res.json({ code: 1, msg: "User already registered on this device" });
     }
-    const defaultShift = await pool.query(
-      `SELECT id FROM shifts WHERE is_active = true LIMIT 1`
-    );
+    // const defaultShift = await pool.query(
+    //   `SELECT id FROM shifts WHERE is_active = true LIMIT 1`
+    // );
 
     // 4. Save to database (raw base64 - same as old system)
     const insertRes = await pool.query(`
       INSERT INTO users (
         sn,role, user_id, name,
         image_left, image_right,
-        shift_id,
         wiegand_flag, admin_auth,
         created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7,$8, NOW(), NOW())
        RETURNING id
-    `, [sn, role = "inmate", id, name, image_left, image_right,defaultShift.rows[0].id, wiegand_flag, admin_auth]);
+    `, [sn, role = "inmate", id, name, image_left, image_right, wiegand_flag, admin_auth]);
+console.log("<><>insertRes",insertRes);
+console.log("<><>insertRes.rows",insertRes.rows);
 
     const generatedId = insertRes.rows[0].id;
 
