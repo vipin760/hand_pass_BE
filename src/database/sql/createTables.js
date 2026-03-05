@@ -29,7 +29,6 @@ async function createTablesIfNotExist() {
   role VARCHAR(20) NOT NULL DEFAULT 'inmate' CHECK (role IN ('admin', 'superadmin', 'inmate', 'staff', 'guard')),
   image_left TEXT,
   image_right TEXT,
-  shift_id UUID REFERENCES shifts(id),
   wiegand_flag INT DEFAULT 0,
   admin_auth INT DEFAULT 0,
   del_flag BOOLEAN NOT NULL DEFAULT FALSE,
@@ -98,7 +97,7 @@ CREATE TABLE IF NOT EXISTS wiegand_groups (
 CREATE TABLE IF NOT EXISTS user_wiegands (
     id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sn VARCHAR(50) NOT NULL,
-    user_id VARCHAR(100) NOT NULL,
+    user_id VARCHAR(100),
     group_uuid UUID REFERENCES wiegand_groups(id) ON DELETE SET NULL,
     group_id VARCHAR(50) NOT NULL, 
     timestamp BIGINT NOT NULL,

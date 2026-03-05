@@ -74,11 +74,10 @@ exports.fetchAllUsers = async (req, res) => {
     const dataQuery = `
       SELECT 
         u.id, u.name, u.email, u.role, u.sn, u.user_id,
-         u.wiegand_flag, u.admin_auth,d.device_name,s.shift_name,
+         u.wiegand_flag, u.admin_auth,d.device_name,
         u.created_at, u.updated_at
       FROM users u
       LEFT JOIN devices d ON u.sn = d.sn
-      LEFT JOIN shifts s ON u.shift_id = s.id
       ${whereClause}
       ORDER BY ${sortColumn} ${sortDirection}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -549,8 +548,6 @@ exports.addUserData = async (req, res) => {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7,$8, NOW(), NOW())
        RETURNING id
     `, [sn, role = "inmate", id, name, image_left, image_right, wiegand_flag, admin_auth]);
-console.log("<><>insertRes",insertRes);
-console.log("<><>insertRes.rows",insertRes.rows);
 
     const generatedId = insertRes.rows[0].id;
 

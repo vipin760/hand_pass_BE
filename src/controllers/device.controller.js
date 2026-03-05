@@ -472,7 +472,7 @@ exports.deviceGetUsers1 = async (req, res) => {
     // Process images
     const processedUsers = await Promise.all(
       users.map(async (user) => ({
-        id:user.id,
+        id: user.id,
         user_id: user.user_id,
         name: user.name,
         wiegand_flag: user.wiegand_flag,
@@ -601,7 +601,7 @@ exports.deviceGetUsers1 = async (req, res) => {
     // -----------------------------------------------------
     // 5. Return expected output
     // -----------------------------------------------------
-    
+
     return res.json({
       code: 0,
       msg: "success",
@@ -1173,7 +1173,7 @@ exports.queryUsers = async (req, res) => {
     // ------------------------------------
     // 2. Query Users (Only updated after device timestamp)
     // ------------------------------------
-    const query = `
+    const query1 = `
       SELECT
         user_id AS id,
         wiegand_flag,
@@ -1186,6 +1186,18 @@ exports.queryUsers = async (req, res) => {
         AND (EXTRACT(EPOCH FROM updated_at) * 1000) > $2
       ORDER BY updated_at ASC
     `;
+
+    const query = `SELECT
+  user_id AS id,
+  wiegand_flag,
+  admin_auth,
+  del_flag,
+  (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS timestamp
+FROM users
+WHERE sn = $1
+  AND del_flag = false
+  AND (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT > $2
+ORDER BY updated_at ASC`
 
     const result = await pool.query(query, [sn, deviceTs]);
 
@@ -1310,7 +1322,7 @@ exports.checkRegistration = async (req, res) => {
       `,
       [sn, id]
     );
-    
+
 
     return res.json({
       ...ERR.SUCCESS,
@@ -1394,6 +1406,7 @@ exports.queryUserImages1 = async (req, res) => {
 
 exports.queryUserImages = async (req, res) => {
   try {
+    console.log("<><>working...query images function")
     // 1️⃣ Validate request body
     if (!req.body || !req.body.sn || !req.body.id) {
       return res.json({
@@ -1409,6 +1422,7 @@ exports.queryUserImages = async (req, res) => {
         errors: errors.array()
       });
     }
+    console.log("<><>req.body", req.body);
 
     const { sn, id: studentId } = req.body;
 
@@ -1827,6 +1841,7 @@ exports.queryBatchImportPath = async (req, res) => {
 
 // group management
 exports.queryWiegandGroup = async (req, res) => {
+  console.log("<><>group is working")
   try {
     // -----------------------------
     // 1️⃣ Validate parameters
@@ -1913,6 +1928,7 @@ exports.queryUserWiegand = async (req, res) => {
     // 1️⃣ Validate parameters
     // -----------------------------
     const { sn, device_timestamp } = req.body;
+    console.log("<><>user wiegand", req.body)
 
     if (!sn || device_timestamp === undefined) {
       return res.json({
