@@ -1125,7 +1125,7 @@ exports.queryUsers1 = async (req, res) => {
       [sn]
     );
 
-    console.log("Query result users →", result.rows);
+    console.log("Query result users(1128) →", result.rows);
 
     // ------------------------------------
     // 3. Return Response
@@ -1173,35 +1173,24 @@ exports.queryUsers = async (req, res) => {
     // ------------------------------------
     // 2. Query Users (Only updated after device timestamp)
     // ------------------------------------
-    const query1 = `
-      SELECT
-        user_id AS id,
-        wiegand_flag,
-        admin_auth,
-        del_flag,
-        CAST(EXTRACT(EPOCH FROM updated_at) * 1000 AS TEXT) AS timestamp
-      FROM users
-      WHERE sn = $1
-        AND del_flag = false
-        AND (EXTRACT(EPOCH FROM updated_at) * 1000) > $2
-      ORDER BY updated_at ASC
-    `;
 
     const query = `SELECT
-  user_id AS id,
-  wiegand_flag,
-  admin_auth,
-  del_flag,
-  (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT AS timestamp
-FROM users
-WHERE sn = $1
-  AND del_flag = false
-  AND (EXTRACT(EPOCH FROM updated_at) * 1000)::BIGINT > $2
-ORDER BY updated_at ASC`
+  uw.user_id AS id,
+  u.wiegand_flag,
+  u.admin_auth,
+  uw.del_flag,
+  uw.timestamp
+FROM user_wiegands uw
+JOIN users u ON u.user_id = uw.user_id
+WHERE uw.sn = $1
+  AND uw.timestamp > $2
+ORDER BY uw.timestamp ASC
+`;
+
 
     const result = await pool.query(query, [sn, deviceTs]);
 
-    console.log("Query result users →", result.rows);
+    console.log("Query result users(1206) →", result.rows);
 
     // ------------------------------------
     // 3. Format Output (Safety layer)
@@ -1311,7 +1300,7 @@ exports.checkRegistration = async (req, res) => {
       SELECT EXISTS (
         SELECT 1
         FROM user_wiegands uw
-        JOIN users u ON u.id = uw.user_id
+        JOIN users u ON u.user_id = uw.user_id
         JOIN wiegand_groups wg ON wg.id = uw.group_uuid
         WHERE wg.sn = $1
           AND u.user_id = $2
@@ -1322,7 +1311,7 @@ exports.checkRegistration = async (req, res) => {
       `,
       [sn, id]
     );
-
+    console.log("<><>result", result.rows)
 
     return res.json({
       ...ERR.SUCCESS,
@@ -1928,7 +1917,6 @@ exports.queryUserWiegand = async (req, res) => {
     // 1️⃣ Validate parameters
     // -----------------------------
     const { sn, device_timestamp } = req.body;
-    console.log("<><>user wiegand", req.body)
 
     if (!sn || device_timestamp === undefined) {
       return res.json({
@@ -1947,7 +1935,6 @@ exports.queryUserWiegand = async (req, res) => {
     }
 
     const deviceTs = Number(device_timestamp) || 0;
-
     // -----------------------------
     // 2️⃣ Query user_wiegands
     // -----------------------------
@@ -1971,7 +1958,6 @@ exports.queryUserWiegand = async (req, res) => {
         timestamp: item.timestamp.toString(),
         del_flag: !!item.del_flag
       };
-
       // Only include group_id if not deleted
       if (!item.del_flag) {
         record.group_id = item.group_id;

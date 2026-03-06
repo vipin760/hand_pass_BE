@@ -26,6 +26,7 @@ const attendanceSettingsRoutes = require("./routes/attendanceSettings.routes");
 const shiftRoutes = require("./routes/shift.route");
 const userWiegandRoutes = require("./routes/userWiegand.routes")
 const WiegandGroupRoutes = require("./routes/wiegandGroup.routes")
+const { pool } = require('./config/database')
 // const { restartDatabase } = require('./crone/deviceOfflineCron');
 // const { startAttendanceCron } = require('./crone/attendanceReminder');
 // startAttendanceCron()

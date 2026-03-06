@@ -2,7 +2,19 @@ const { pool } = require("../config/database");
 
 exports.addUserWiegand = async (req, res) => {
   try {
-    const { sn, user_id, group_id = '', timestamp, del_flag = false } = req.body;
+    const { sn, user_id, group_id = '', del_flag = false } = req.body;
+    console.log("<><>req.body", req.body)
+
+    const timestamp = Math.floor(Date.now() / 1000)
+
+    const istTime = new Date(timestamp * 1000).toLocaleString(
+      "en-IN",
+      { timeZone: "Asia/Kolkata" }
+    )
+
+    console.log("<><>timestamp",timestamp)
+    console.log("<><>istTime",istTime)
+
     // Basic validation
     if (!sn || !user_id || !timestamp) {
       return res.status(400).json({
@@ -10,15 +22,15 @@ exports.addUserWiegand = async (req, res) => {
         message: "sn, user_id and timestamp are required"
       });
     }
-    const userExisting = await pool.query(`SELECT * FROM user_wiegands WHERE user_id=$1 AND group_id =$2`,[user_id,group_id])
-    if(userExisting.rows.length != 0){
-         return res.status(400).json({success:false,message:"user with same group already existing"})
+    const userExisting = await pool.query(`SELECT * FROM user_wiegands WHERE user_id=$1 AND group_id =$2`, [user_id, group_id])
+    if (userExisting.rows.length != 0) {
+      return res.status(400).json({ success: false, message: "user with same group already existing" })
     }
-    const existWiegandGrp = await pool.query(`SELECT group_id, id FROM wiegand_groups WHERE group_id = $1`,[group_id])
-    if(existWiegandGrp.rows.length == 0 ){
-        return res.status(400).json({success:false,message:"could not able to find group"})
+    const existWiegandGrp = await pool.query(`SELECT group_id, id FROM wiegand_groups WHERE group_id = $1`, [group_id])
+    if (existWiegandGrp.rows.length == 0) {
+      return res.status(400).json({ success: false, message: "could not able to find group" })
     }
-    
+
     const query = `
       INSERT INTO user_wiegands (sn, user_id, group_id,group_uuid, timestamp, del_flag)
       VALUES ($1, $2, $3, $4, $5,$6)
@@ -93,8 +105,8 @@ exports.getUserWiegand = async (req, res) => {
         del_flag === "true" || del_flag === true
           ? true
           : del_flag === "false" || del_flag === false
-          ? false
-          : null;
+            ? false
+            : null;
 
       if (parsedFlag !== null) {
         whereClauses.push(`del_flag = $${paramIndex}`);

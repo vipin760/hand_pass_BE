@@ -8,11 +8,10 @@ exports.createWiegandGroup = async (req, res) => {
         const {
             group_id,
             sn,
-            timestamp,
             time_configs = [],
             del_flag = 0
         } = req.body;
-
+        const timestamp = Math.floor(Date.now() / 1000);
         if (!group_id || !sn || !timestamp) {
             return res.status(400).json({
                 code: 400,
@@ -120,7 +119,7 @@ exports.getWiegandGroups = async (req, res) => {
         if (![0, 1].includes(parsedDelFlag)) {
             return res.status(400).json({
                 code: 400,
-                msg: "del_flag 只能为0或1",
+                msg: "del_flag",
                 data: null
             });
         }
@@ -213,7 +212,7 @@ exports.getWiegandGroups = async (req, res) => {
 
         return res.status(200).json({
             code: 200,
-            msg: "操作成功",
+            msg: "operation successful",
             data: result.rows.map(row => ({
                 id: row.id,
                 group_id: row.group_id,
@@ -237,10 +236,9 @@ exports.getWiegandGroups = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("查询门禁分组列表失败:", error);
         return res.status(500).json({
             code: 500,
-            msg: "数据库查询失败",
+            msg: "internal server down",
             data: null
         });
     }
@@ -248,12 +246,9 @@ exports.getWiegandGroups = async (req, res) => {
 
 exports.updateWiegandGroup = async (req, res) => {
     const client = await pool.connect();
-
     try {
         const { id } = req.params;
         const { sn, group_id, time_configs, del_flag } = req.body;
-        console.log("Incoming time_configs:", time_configs);
-        console.log("Type:", typeof time_configs);
 
         if (!id) {
             return res.status(400).json({
