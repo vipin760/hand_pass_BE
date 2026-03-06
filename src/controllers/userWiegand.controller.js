@@ -198,13 +198,17 @@ exports.getUserWiegand = async (req, res) => {
 
     // ---- Data Query ----
     const dataQuery = `
-      SELECT *
-      FROM user_wiegands
-      ${whereSQL}
-      ORDER BY ${sortColumn} ${sortDirection}
-      LIMIT $${paramIndex}
-      OFFSET $${paramIndex + 1};
-    `;
+  SELECT 
+    uw.*,
+    d.device_name
+  FROM user_wiegands uw
+  LEFT JOIN devices d 
+    ON uw.sn = d.sn
+  ${whereSQL}
+  ORDER BY ${sortColumn} ${sortDirection}
+  LIMIT $${paramIndex}
+  OFFSET $${paramIndex + 1};
+`;
 
     values.push(limit);
     values.push(offset);
