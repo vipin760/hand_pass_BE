@@ -1830,7 +1830,6 @@ exports.queryBatchImportPath = async (req, res) => {
 
 // group management
 exports.queryWiegandGroup = async (req, res) => {
-  console.log("<><>group is working")
   try {
     // -----------------------------
     // 1️⃣ Validate parameters
