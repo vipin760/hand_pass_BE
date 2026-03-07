@@ -1166,7 +1166,7 @@ exports.queryUsers = async (req, res) => {
     }
 
     const { sn, device_timestamp } = req.body;
-
+console.log("<><>req.body",req.body)
     // Force numeric (avoid injection + type issue)
     const deviceTs = parseInt(device_timestamp, 10) || 0;
 
@@ -1183,7 +1183,7 @@ exports.queryUsers = async (req, res) => {
 FROM user_wiegands uw
 JOIN users u ON u.user_id = uw.user_id
 WHERE uw.sn = $1
-  AND uw.timestamp > $2
+  AND uw.timestamp >= $2
 ORDER BY uw.timestamp ASC
 `;
 
@@ -1892,6 +1892,7 @@ exports.queryWiegandGroup = async (req, res) => {
     // -----------------------------
     // 4️⃣ Return response
     // -----------------------------
+    console.log("<><>idDataList(device.controller(1895))",idDataList)
     return res.json({
       code: 0,
       msg: "success",
@@ -1911,12 +1912,13 @@ exports.queryWiegandGroup = async (req, res) => {
 };
 
 exports.queryUserWiegand = async (req, res) => {
+  console.log("<><> working queryuserwiegand")
   try {
     // -----------------------------
     // 1️⃣ Validate parameters
     // -----------------------------
     const { sn, device_timestamp } = req.body;
-
+console.log("<><>req.body from queryUserWiegand",req.body)
     if (!sn || device_timestamp === undefined) {
       return res.json({
         ...ERR.PARAM_ERROR,
@@ -1934,6 +1936,7 @@ exports.queryUserWiegand = async (req, res) => {
     }
 
     const deviceTs = Number(device_timestamp) || 0;
+    // const deviceTs = Math.floor(Number(device_timestamp)/1000) || 0;
     // -----------------------------
     // 2️⃣ Query user_wiegands
     // -----------------------------
@@ -1968,6 +1971,7 @@ exports.queryUserWiegand = async (req, res) => {
     // -----------------------------
     // 4️⃣ Return response
     // -----------------------------
+    console.log("<><>idDataList queryuserwiegand(1972)",formattedData)
     return res.json({
       ...ERR.SUCCESS,
       data: {

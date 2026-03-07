@@ -74,7 +74,8 @@ exports.addUserWiegand = async (req, res) => {
       });
     }
 
-    const timestamp = Math.floor(Date.now() / 1000);
+    // const timestamp = Math.floor(Date.now() / 1000);
+    const timestamp = Date.now();
 
     // check group exists
     const existWiegandGrp = await pool.query(
@@ -434,7 +435,8 @@ exports.updateUserWiegand = async (req, res) => {
       });
     }
 
-    const timestamp = Math.floor(Date.now() / 1000);
+    // const timestamp = Math.floor(Date.now() / 1000);
+    const timestamp = Date.now();
 
     await client.query("BEGIN");
 
