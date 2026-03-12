@@ -795,88 +795,6 @@ exports.getPassRecordsByDeviceSn = async (req, res) => {
   }
 };
 
-exports.connect1 = async (req, res) => {
-  try {
-    // -----------------------------
-    // Validate request
-    // -----------------------------
-    if (!req.body || !req.body.sn) {
-      return res.json({ ...ERR.PARAM_ERROR, error: "missing sn field" });
-    }
-
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.json({
-        ...ERR.PARAM_ERROR,
-        errors: errors.array()
-      });
-    }
-
-    const { sn } = req.body;
-
-    // -----------------------------
-    // Get Client IP
-    // -----------------------------
-    let clientIp = req.ip || req.connection.remoteAddress || null;
-
-    if (clientIp && clientIp.includes("::ffff:")) {
-      clientIp = clientIp.split("::ffff:")[1];
-    }
-
-    // Store last connect time in memory
-    const currentTime = Date.now();
-    deviceLastConnectTime.set(sn, currentTime);
-
-    // -----------------------------
-    // Check if device exists
-    // -----------------------------
-    const checkDevice = await pool.query(
-      `SELECT * FROM devices WHERE sn = $1`,
-      [sn]
-    );
-
-    if (checkDevice.rowCount > 0) {
-      // -----------------------------
-      // Update existing device
-      // -----------------------------
-      await pool.query(
-        `
-        UPDATE devices 
-        SET 
-          online_status = 1,
-          device_ip = $1,
-          last_connect_time = NOW(),
-          updated_at = NOW()
-        WHERE sn = $2
-        `,
-        [clientIp, sn]
-      );
-    } else {
-      // -----------------------------
-      // Insert new device
-      // -----------------------------
-      await pool.query(
-        `
-        INSERT INTO devices 
-          (sn, online_status, device_ip, last_connect_time, created_at, updated_at)
-        VALUES
-          ($1, 1, $2, NOW(), NOW(), NOW())
-        `,
-        [sn, clientIp]
-      );
-    }
-
-    return res.json({ ...ERR.SUCCESS });
-
-  } catch (error) {
-    console.error("Device connect error:", error);
-
-    return res.json({
-      ...ERR.DB_QUERY_ERROR,
-      msg: `Device connect failed: ${error.message}`
-    });
-  }
-};
 
 exports.connect = async (req, res) => {
   try {
@@ -897,7 +815,6 @@ exports.connect = async (req, res) => {
         errors: errors.array()
       });
     }
-
     const { sn } = req.body;
 
     // -----------------------------
@@ -919,7 +836,6 @@ exports.connect = async (req, res) => {
       `SELECT id FROM devices WHERE sn = $1`,
       [sn]
     );
-
     if (checkDevice.rowCount > 0) {
       await pool.query(
         `
@@ -947,7 +863,7 @@ exports.connect = async (req, res) => {
     // -----------------------------
     // 1️⃣ Users max updated_at (ms)
     // -----------------------------
-    const userMaxResult = await pool.query(
+    const userMaxResult1 = await pool.query(
       `
       SELECT COALESCE(
         MAX(EXTRACT(EPOCH FROM updated_at) * 1000),
@@ -959,9 +875,18 @@ exports.connect = async (req, res) => {
       [sn]
     );
 
+        const userMaxResult = await pool.query(
+      `
+      SELECT COALESCE(
+        MAX(EXTRACT(EPOCH FROM updated_at) * 1000),
+        0
+      ) AS max_ts
+      FROM users
+      `,
+    );
+
     const register_timestamp =
       Math.floor(userMaxResult.rows[0].max_ts || 0).toString();
-
     // -----------------------------
     // 2️⃣ Wiegand Groups max timestamp
     // -----------------------------
@@ -1173,6 +1098,25 @@ console.log("<><>req.body",req.body)
     // ------------------------------------
     // 2. Query Users (Only updated after device timestamp)
     // ------------------------------------
+       const query1 = `SELECT
+  uw.user_id AS id,
+  u.wiegand_flag,
+  u.admin_auth,
+  uw.del_flag,
+  GREATEST(
+      uw.timestamp,
+      EXTRACT(EPOCH FROM u.updated_at) * 1000
+  ) AS timestamp
+FROM user_wiegands uw
+JOIN users u ON u.user_id = uw.user_id
+WHERE uw.sn = $1
+AND GREATEST(
+      uw.timestamp,
+      EXTRACT(EPOCH FROM u.updated_at) * 1000
+    ) > $2
+AND u.del_flag = false
+ORDER BY timestamp ASC
+`;
 
     const query = `SELECT
   uw.user_id AS id,
