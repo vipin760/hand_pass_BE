@@ -73,7 +73,7 @@ exports.fetchAllUsers = async (req, res) => {
     // Fetch users with sort + pagination
     const dataQuery = `
       SELECT 
-        u.id, u.name, u.email, u.role, u.sn, u.user_id,
+        u.id, u.name, u.email, u.role, u.sn, u.user_id,u.phone_number,
          u.wiegand_flag, u.admin_auth,d.device_name,
         u.created_at, u.updated_at
       FROM users u
