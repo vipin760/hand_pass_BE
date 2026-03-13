@@ -11,7 +11,8 @@ exports.createWiegandGroup = async (req, res) => {
             time_configs = [],
             del_flag = 0
         } = req.body;
-        const timestamp = Math.floor(Date.now() / 1000);
+        // const timestamp = Math.floor(Date.now() / 1000);
+        const timestamp = Date.now();
         if (!group_id || !sn || !timestamp) {
             return res.status(400).json({
                 code: 400,

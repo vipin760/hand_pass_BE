@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS wiegand_groups (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),  -- internal ID
     group_id VARCHAR(50) NOT NULL,                  -- device group ID
     sn VARCHAR(50) NOT NULL,                        -- device serial number
-   timestamp BIGINT NOT NULL DEFAULT FLOOR(EXTRACT(EPOCH FROM now() AT TIME ZONE 'Asia/Kolkata')),
+    timestamp BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM now()) * 1000),
     del_flag BOOLEAN NOT NULL DEFAULT FALSE,        -- true = delete
     time_configs JSONB DEFAULT '[]'::jsonb,         -- time rules
     created_at TIMESTAMP DEFAULT now(),
@@ -100,8 +100,9 @@ CREATE TABLE IF NOT EXISTS user_wiegands (
     user_id VARCHAR(100),
     group_uuid UUID REFERENCES wiegand_groups(id) ON DELETE SET NULL,
     group_id VARCHAR(50) NOT NULL, 
-    timestamp BIGINT NOT NULL DEFAULT FLOOR(EXTRACT(EPOCH FROM now() AT TIME ZONE 'Asia/Kolkata')),
-    del_flag BOOLEAN NOT NULL DEFAULT FALSE
+    timestamp BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM now()) * 1000),
+    del_flag BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT unique_user_device UNIQUE(user_id,sn)
 );
 
     `);
@@ -115,5 +116,7 @@ CREATE TABLE IF NOT EXISTS user_wiegands (
   }
 }
 
+
+    // timestamp BIGINT NOT NULL DEFAULT FLOOR(EXTRACT(EPOCH FROM now() AT TIME ZONE 'Asia/Kolkata')),
 
 module.exports = { createTablesIfNotExist };
