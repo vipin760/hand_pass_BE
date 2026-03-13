@@ -69,10 +69,10 @@ app.use(
 
 
 app.use("/", indexRoutes);
+app.use("/api/auth", authRoutes)
 app.use("/v1",connectDeviceRoutes)
 app.use("/v1/api",userWiegandRoutes)
 app.use("/v1/api",WiegandGroupRoutes)
-app.use("/api/auth", authRoutes)
 app.use("/api/upload",fileUploadRoutes)
 app.use("/api/group",groupRoutes)
 app.use("/api/users",usersRoutes)
