@@ -585,14 +585,14 @@ exports.updateUsersPersmissions = async (req, res) => {
 
 exports.updateUsersDetails = async (req, res) => {
   try {
-    const { name, email, shift_id } = req.body;
     const { id } = req.params;
+    const data = req.body;
 
-    // Optional: Validate shift exists if provided
-    if (shift_id) {
+    // Validate shift_id if present
+    if (data.shift_id) {
       const shiftCheck = await pool.query(
-        `SELECT id FROM shifts WHERE id = $1 AND is_active = true`,
-        [shift_id]
+        `SELECT id FROM shifts WHERE id=$1 AND is_active=true`,
+        [data.shift_id]
       );
 
       if (shiftCheck.rows.length === 0) {
@@ -603,19 +603,45 @@ exports.updateUsersDetails = async (req, res) => {
       }
     }
 
-    await pool.query(
-      `UPDATE users 
-       SET name = COALESCE($1, name),
-           email = COALESCE($2, email),
-           shift_id = COALESCE($3, shift_id),
-           updated_at = now()
-       WHERE id = $4`,
-      [name || null, email || null, shift_id || null, id]
-    );
+    const fields = [];
+    const values = [];
+    let index = 1;
+
+    for (const key in data) {
+      fields.push(`${key} = $${index}`);
+      values.push(data[key]);
+      index++;
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "No fields provided for update"
+      });
+    }
+
+    const query = `
+      UPDATE users
+      SET ${fields.join(", ")}, updated_at = now()
+      WHERE id = $${index}
+      RETURNING *
+    `;
+
+    values.push(id);
+
+    const result = await pool.query(query, values);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "User not found"
+      });
+    }
 
     return res.json({
       status: true,
-      message: "User updated successfully"
+      message: "User updated successfully",
+      data: result.rows[0]
     });
 
   } catch (error) {

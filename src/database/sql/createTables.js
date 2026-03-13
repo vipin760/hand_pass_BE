@@ -21,6 +21,7 @@ async function createTablesIfNotExist() {
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(100) NOT NULL,
   email VARCHAR(100),
+  phone_number VARCHAR(20) NOT NULL DEFAULT '',
   password_hash TEXT,
   refresh_token TEXT,
   sn VARCHAR(50),
