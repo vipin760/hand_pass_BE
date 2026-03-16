@@ -36,4 +36,18 @@ describe("Report Route", () => {
     expect(authenticate).toHaveBeenCalled();
     expect(reportController.deviceAccessReport).toHaveBeenCalled();
   });
+
+  test("should block POST /api/report/access-list when authenticate rejects", async () => {
+    authenticate.mockImplementationOnce((req, res) => {
+      res.status(401).json({ message: "Access denied" });
+    });
+
+    const res = await request(app)
+      .post("/api/report/access-list")
+      .send({});
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ message: "Access denied" });
+    expect(reportController.deviceAccessReport).not.toHaveBeenCalled();
+  });
 });

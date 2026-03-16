@@ -82,7 +82,6 @@ exports.addUserWiegand = async (req, res) => {
       `SELECT group_id, id FROM wiegand_groups WHERE group_id = $1`,
       [group_id]
     );
-
     if (existWiegandGrp.rows.length === 0) {
       return res.status(400).json({
         success: false,
@@ -90,7 +89,21 @@ exports.addUserWiegand = async (req, res) => {
       });
     }
 
-    const query = `
+    // 🔹 check if already exists
+    const existingUser = await pool.query(
+      `SELECT id FROM user_wiegands WHERE user_id = $1 AND sn = $2`,
+      [user_id, sn]
+    );
+console.log("<><>existingUser",existingUser);
+
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Group already existing for this user and device"
+      });
+    }
+
+    const query1 = `
       INSERT INTO user_wiegands
       (sn, user_id, group_id, group_uuid, timestamp, del_flag)
       VALUES ($1,$2,$3,$4,$5,$6)
@@ -102,6 +115,16 @@ exports.addUserWiegand = async (req, res) => {
         del_flag = EXCLUDED.del_flag
       RETURNING *
     `;
+    const query =`INSERT INTO user_wiegands
+(sn, user_id, group_id, group_uuid, timestamp, del_flag)
+VALUES ($1,$2,$3,$4,$5,$6)
+ON CONFLICT ON CONSTRAINT unique_user_device
+DO UPDATE SET
+  group_id = EXCLUDED.group_id,
+  group_uuid = EXCLUDED.group_uuid,
+  timestamp = EXCLUDED.timestamp,
+  del_flag = EXCLUDED.del_flag
+RETURNING *`;
 
     const values = [
       sn,

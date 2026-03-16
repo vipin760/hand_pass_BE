@@ -71,17 +71,57 @@ exports.fetchAllUsers = async (req, res) => {
       whereConditions.length > 0 ? "WHERE " + whereConditions.join(" AND ") : "";
 
     // Fetch users with sort + pagination
-    const dataQuery = `
+    const dataQuery1 = `
       SELECT 
         u.id, u.name, u.email, u.role, u.sn, u.user_id,u.phone_number,
          u.wiegand_flag, u.admin_auth,d.device_name,
-        u.created_at, u.updated_at
+        u.created_at, u.updated_at, uw.group_id,wg.sn,wg.time_configs
       FROM users u
       LEFT JOIN devices d ON u.sn = d.sn
+      LEFT JOIN user_wiegands uw ON u.user_id = uw.user_id
+      LEFT JOIN wiegand_groups wg ON uw.group_uuid = wg.id
       ${whereClause}
       ORDER BY ${sortColumn} ${sortDirection}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
+    const dataQuery = `SELECT 
+  u.id,
+  u.name,
+  u.email,
+  u.role,
+  u.sn,
+  u.user_id,
+  u.phone_number,
+  u.wiegand_flag,
+  u.admin_auth,
+  d.device_name,
+  u.created_at,
+  u.updated_at,
+
+  COALESCE(
+    json_agg(
+      json_build_object(
+        'group_id', wg.group_id,
+        'time_configs', wg.time_configs
+      )
+    ) FILTER (WHERE wg.id IS NOT NULL),
+    '[]'
+  ) AS groups
+
+FROM users u
+LEFT JOIN devices d ON u.sn = d.sn
+LEFT JOIN user_wiegands uw ON u.user_id = uw.user_id
+LEFT JOIN wiegand_groups wg ON uw.group_uuid = wg.id
+
+${whereClause}
+
+GROUP BY
+  u.id,
+  d.device_name
+
+ORDER BY ${sortColumn} ${sortDirection}
+LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`
+
 
     params.push(limitNum, offset);
 
@@ -462,17 +502,33 @@ exports.deleteUsersWithGroup = async (req, res) => {
         msg: "User id is required"
       });
     }
-    const result = await pool.query(
-      `DELETE FROM users WHERE id = $1 RETURNING id, name, email`,
+
+    // get user first
+    const userResult = await pool.query(
+      `SELECT user_id FROM users WHERE id = $1`,
       [id]
     );
 
-    if (result.rowCount === 0) {
+    if (userResult.rowCount === 0) {
       return res.status(404).json({
         code: 1,
         msg: "User not found"
       });
     }
+
+    const userId = userResult.rows[0].user_id;
+
+    // delete user_wiegands
+    await pool.query(
+      `DELETE FROM user_wiegands WHERE user_id = $1`,
+      [userId]
+    );
+
+    // delete user
+    const result = await pool.query(
+      `DELETE FROM users WHERE id = $1 RETURNING id, name, email`,
+      [id]
+    );
 
     return res.status(200).json({
       code: 0,
@@ -588,10 +644,23 @@ exports.updateUsersDetails = async (req, res) => {
     const { id } = req.params;
     const data = req.body;
 
+    // Check if user exists
+    const userCheck = await pool.query(
+      `SELECT id FROM users WHERE id = $1`,
+      [id]
+    );
+
+    if (userCheck.rowCount === 0) {
+      return res.status(404).json({
+        status: false,
+        message: "User not found"
+      });
+    }
+
     // Validate shift_id if present
     if (data.shift_id) {
       const shiftCheck = await pool.query(
-        `SELECT id FROM shifts WHERE id=$1 AND is_active=true`,
+        `SELECT id FROM shifts WHERE id = $1 AND is_active = true`,
         [data.shift_id]
       );
 
@@ -603,10 +672,40 @@ exports.updateUsersDetails = async (req, res) => {
       }
     }
 
+    // Check duplicate email
+    if (data.email) {
+      const emailCheck = await pool.query(
+        `SELECT id FROM users WHERE email = $1 AND id != $2`,
+        [data.email, id]
+      );
+
+      if (emailCheck.rowCount > 0) {
+        return res.status(400).json({
+          status: false,
+          message: "Email already exists"
+        });
+      }
+    }
+
+    // Check duplicate phone number
+    if (data.phone_number) {
+      const phoneCheck = await pool.query(
+        `SELECT id FROM users WHERE phone_number = $1 AND id != $2`,
+        [data.phone_number, id]
+      );
+
+      if (phoneCheck.rowCount > 0) {
+        return res.status(400).json({
+          status: false,
+          message: "Phone number already exists"
+        });
+      }
+    }
+
+    // Build dynamic update query
     const fields = [];
     const values = [];
     let index = 1;
-
     for (const key in data) {
       fields.push(`${key} = $${index}`);
       values.push(data[key]);
@@ -631,13 +730,6 @@ exports.updateUsersDetails = async (req, res) => {
 
     const result = await pool.query(query, values);
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({
-        status: false,
-        message: "User not found"
-      });
-    }
-
     return res.json({
       status: true,
       message: "User updated successfully",
@@ -645,6 +737,7 @@ exports.updateUsersDetails = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("updateUsersDetails error:", error);
     return res.status(500).json({
       status: false,
       message: "Internal server error",
