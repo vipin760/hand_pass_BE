@@ -149,6 +149,7 @@ exports.deviceAccessReport = async (req, res) => {
       report_type = "access_report",
       page = 1,
       limit = 10,
+      id,
       sortField = "created_at",
       sortOrder = "desc",
       user_id,
@@ -176,6 +177,11 @@ exports.deviceAccessReport = async (req, res) => {
       whereClauses.push(`u.user_id = $${values.length}`);
     }
 
+    if (id) {
+      values.push(id);
+      whereClauses.push(`u.id = $${values.length}`);
+    }
+
     const where =
       whereClauses.length > 0
         ? `WHERE ${whereClauses.join(" AND ")}`
@@ -195,9 +201,8 @@ exports.deviceAccessReport = async (req, res) => {
 
     const orderField = sortableFields[sortField] || "u.created_at";
 
-    const orderBy = `ORDER BY ${orderField} ${
-      sortOrder.toLowerCase() === "asc" ? "ASC" : "DESC"
-    }`;
+    const orderBy = `ORDER BY ${orderField} ${sortOrder.toLowerCase() === "asc" ? "ASC" : "DESC"
+      }`;
 
     /*
     -----------------------------
