@@ -237,7 +237,6 @@ exports.getUserWiegand = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("查询用户韦根关联失败：", error);
     return res.status(500).json({
       success: false,
       message: error.message

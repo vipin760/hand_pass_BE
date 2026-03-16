@@ -38,8 +38,12 @@ exports.loginUserService = async(body)=>{
     const emailExistQry = `SELECT * FROM users WHERE email = $1`
     const emailExistVal = [email]
     const EmailExist = await sqlQueryFun(emailExistQry, emailExistVal)
+    console.log("<><>EmailExist",EmailExist)
     if(!EmailExist.length) return { status: false, data: EmailExist, message: "No account found with this email address" }
     const {id,role,name} = EmailExist[0]
+    console.log("<><>id",id)
+    console.log("<><>role",role)
+    console.log("<><>name",name)
     const passwordMatch = await bcrypt.compare(password,EmailExist[0].password_hash)
     if(!passwordMatch) return { status: false, message: "The password you entered is incorrect" }
     const token = jwt.sign({id:id,role:role,email:email},process.env.JWT_SECRET,{expiresIn:"30d"})

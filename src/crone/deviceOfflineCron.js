@@ -15,7 +15,7 @@ cron.schedule('* * * * *', async () => {
         `);
 
         if (result.rowCount > 0) {
-            console.log(`Marked ${result.rowCount} device(s) offline – no heartbeat in 5 min`);
+            console.log(`Marked ${result.rowCount} device(s) offline – no heartbeat in 1 min`);
         }
     } catch (err) {
         console.error('Offline cron failed:', err);
