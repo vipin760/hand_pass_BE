@@ -31,6 +31,9 @@ describe("User Wiegand Api", () => {
         rows: [{ group_id: "G1", id: "group-uuid-1" }]
       })
       .mockResolvedValueOnce({
+        rows: []
+      })
+      .mockResolvedValueOnce({
         rows: [
           {
             id: 11,
@@ -72,6 +75,11 @@ describe("User Wiegand Api", () => {
     );
     expect(pool.query).toHaveBeenNthCalledWith(
       2,
+      "SELECT id FROM user_wiegands WHERE user_id = $1 AND sn = $2",
+      ["U1", "SN001"]
+    );
+    expect(pool.query).toHaveBeenNthCalledWith(
+      3,
       expect.stringContaining("INSERT INTO user_wiegands"),
       ["SN001", "U1", "G1", "group-uuid-1", now, false]
     );

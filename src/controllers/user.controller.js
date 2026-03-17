@@ -41,7 +41,7 @@ exports.fetchAllUsers = async (req, res) => {
 
     // Search (name/email)
     if (search.trim()) {
-      whereConditions.push(`(name ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`);
+      whereConditions.push(`(u.name ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR u.user_id ILIKE $${paramIndex})`);
       params.push(`%${search.trim()}%`);
       paramIndex++;
     }
@@ -128,7 +128,7 @@ LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`
     // Count total rows (without pagination)
     const countQuery = `
       SELECT COUNT(*) AS total
-      FROM users
+      FROM users u
       ${whereClause}
     `;
 

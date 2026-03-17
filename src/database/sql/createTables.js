@@ -3,20 +3,6 @@ const { pool } = require('../../config/database');
 async function createTablesIfNotExist() {
   try {
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS shifts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  shift_name VARCHAR(100) NOT NULL,
-  start_time TIME NOT NULL,
-  end_time TIME NOT NULL,
-  grace_minutes INT DEFAULT 0,
-  weekly_off_days INT[] DEFAULT '{}',   -- 0=Sun,1=Mon...
-  late_mark_after INT DEFAULT 0,      -- minutes after start_time
-  half_day_after INT DEFAULT 0,       -- minutes after start_time
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMP DEFAULT now(),
-  updated_at TIMESTAMP DEFAULT now()
-);
-
   CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(100) NOT NULL,
@@ -69,20 +55,6 @@ CREATE TABLE IF NOT EXISTS device_access_logs (
 );
 
 
-
-CREATE TABLE IF NOT EXISTS holiday_master (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  holiday_date DATE NOT NULL,
-  name VARCHAR(100) NOT NULL,
-  type VARCHAR(30) DEFAULT 'PUBLIC',  -- PUBLIC, FESTIVAL, COMPANY
-  country VARCHAR(10) DEFAULT 'IN',
-  state VARCHAR(50),                  -- nullable for national holidays
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMP DEFAULT now(),
-  updated_at TIMESTAMP DEFAULT now(),
-  UNIQUE(holiday_date, country, state)
-);
-
 CREATE TABLE IF NOT EXISTS wiegand_groups (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),  -- internal ID
     group_id VARCHAR(50) NOT NULL,                  -- device group ID
@@ -104,6 +76,34 @@ CREATE TABLE IF NOT EXISTS user_wiegands (
     timestamp BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM now()) * 1000),
     del_flag BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT unique_user_device UNIQUE(user_id,sn)
+);
+
+CREATE TABLE IF NOT EXISTS attendance_records (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id VARCHAR(100) NOT NULL,
+  sn VARCHAR(50),
+  attendance_date DATE NOT NULL,
+
+  check_in TIMESTAMP,
+  check_out TIMESTAMP,
+
+  work_minutes INT DEFAULT 0,
+
+  status VARCHAR(20) CHECK (
+    status IN (
+      'present',
+      'absent',
+      'late',
+      'half_day',
+      'week_off',
+      'holiday'
+    )
+  ),
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now(),
+
+  UNIQUE(user_id, attendance_date)
 );
 
     `);

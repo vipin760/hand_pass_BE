@@ -22,7 +22,6 @@ const usersRoutes = require("./routes/user.routes");
 const accessRoutes = require("./routes/report.routes");
 const dashboardRoutes = require("./routes/dashboard.route");
 const holidayRoutes = require("./routes/holiday.route");
-const attendanceSettingsRoutes = require("./routes/attendanceSettings.routes");
 const shiftRoutes = require("./routes/shift.route");
 const userWiegandRoutes = require("./routes/userWiegand.routes")
 const WiegandGroupRoutes = require("./routes/wiegandGroup.routes")
@@ -79,7 +78,6 @@ app.use("/api/users",usersRoutes)
 app.use("/api/report",accessRoutes)
 app.use("/api/dashboard",dashboardRoutes)
 app.use("/api/holiday",holidayRoutes)
-app.use("/api/attendance",attendanceSettingsRoutes)
 app.use("/api/shift",shiftRoutes)
 
 // restartDatabase()

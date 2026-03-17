@@ -4,42 +4,10 @@ const { runAttendanceCheck } = require('../jobs/attendance.job');
 
 let attendanceCron = null;
 
-async function startAttendanceCron() {
-  console.log('>>> startAttendanceCron CALLED');
+const { processAttendance } = require('../controllers/attendanceSettings.controller');
 
-  const res = await pool.query(`
-    SELECT work_start_time
-    FROM attendance_settings
-    WHERE is_active = true
-    LIMIT 1
-  `);
+cron.schedule("* * * * *", async () => {
+  console.log("Running attendance processor...");
+  await processAttendance();
+});
 
-  console.log('>>> DB result:', res.rows);
-
-  if (res.rowCount === 0) {
-    console.log('>>> No active attendance setting');
-    return;
-  }
-
-  const startTime = res.rows[0].work_start_time;
-  const timeStr = typeof startTime === 'string'
-    ? startTime
-    : startTime.toTimeString();
-
-  const [hour, minute] = timeStr.split(':');
-
-  console.log('>>> Scheduling cron at:', hour, minute);
-
-  attendanceCron = cron.schedule(
-    `${minute} ${hour} * * *`,
-    async () => {
-      console.log('🔥🔥 CRON TRIGGERED at', new Date());
-      await runAttendanceCheck(startTime);
-    },
-    {
-      timezone: 'Asia/Kolkata'
-    }
-  );
-}
-
-module.exports = { startAttendanceCron };

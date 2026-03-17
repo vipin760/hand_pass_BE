@@ -1,6 +1,7 @@
 const app = require('./app');
 const dotenv = require('dotenv').config();
 require('./crone/deviceOfflineCron');
+require('./crone/attendanceReminder');
 const { createTablesIfNotExist } = require('./database/sql/createTables');
 const { clearAllTables } = require('./utils/clearAllTable');
 

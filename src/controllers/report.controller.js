@@ -1,345 +1,111 @@
 const { Parser } = require("json2csv");
 const { pool } = require("../config/database");
 const moment = require("moment")
-exports.deviceAccessReport1 = async (req, res) => {
-  try {
-    const {
-      page,
-      limit,
-      sortField = 'created_at',
-      sortOrder = 'desc',
-      sn,
-      name,
-      user_id,
-      palm_type,
-      start_date,
-      end_date,
-      format = 'json'
-    } = req.body;
+const secondsToTime = (sec) => {
+  if (sec === null || sec === undefined) return null;
 
-    let values = [];
-    let whereClauses = [];
+  const hours = Math.floor(sec / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
 
-    // ----- Filters -----
-    if (sn) {
-      values.push(`%${sn}%`);
-      whereClauses.push(`sn ILIKE $${values.length}`);
-    }
-
-    if (name) {
-      values.push(`%${name}%`);
-      whereClauses.push(`name ILIKE $${values.length}`);
-    }
-
-    if (user_id) {
-      values.push(user_id);
-      whereClauses.push(`user_id = $${values.length}`);
-    }
-
-    if (palm_type) {
-      values.push(palm_type);
-      whereClauses.push(`palm_type = $${values.length}`);
-    }
-
-    if (start_date && end_date) {
-      values.push(start_date);
-      values.push(end_date);
-      whereClauses.push(`device_date_time BETWEEN $${values.length - 1} AND $${values.length}`);
-    }
-
-    let where = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
-
-    // ----- Sorting -----
-    const orderBy = `ORDER BY ${sortField} ${sortOrder.toUpperCase()}`;
-
-    // ----- Pagination -----
-    let pagination = "";
-    let pageNum = 1, limitNum = 0;
-
-    if (page && limit) {
-      pageNum = parseInt(page) || 1;
-      limitNum = parseInt(limit) || 10;
-      const offset = (pageNum - 1) * limitNum;
-
-      values.push(limitNum);
-      values.push(offset);
-      pagination = `LIMIT $${values.length - 1} OFFSET $${values.length}`;
-    }
-
-    // ----- Main query -----
-    const query = `
-  SELECT 
-    dal.id,
-    dal.sn,
-    d.device_name,
-    dal.name,
-    dal.user_id,
-    dal.palm_type,
-    dal.device_date_time,
-    dal.created_at
-  FROM device_access_logs dal
-  LEFT JOIN devices d ON d.sn = dal.sn
-  ${where}
-  ${orderBy}
-  ${pagination}
-`;
-
-    const rows = await pool.query(query, values);
-    let data = rows.rows;
-
-    if (!data.length) {
-      return res.status(200).json({ success: true, message: "No records found", data: [] });
-    }
-
-    // Format date fields
-    data = data.map(item => ({
-      ...item,
-      device_date_time: moment(item.device_date_time).format("DD-MM-YYYY HH:mm:ss"),
-      created_at: moment(item.created_at).format("DD-MM-YYYY HH:mm:ss")
-    }));
-
-    // ----- CSV Export -----
-    if (format === "csv") {
-      const csvFields = [
-        "id",
-        "sn",
-        "name",
-        "device_name",
-        "user_id",
-        "palm_type",
-        "device_date_time",
-        "created_at"
-      ];
-
-      const parser = new Parser({ fields: csvFields });
-      const csv = parser.parse(data);
-
-      res.setHeader("Content-Disposition", "attachment; filename=device_access_report.csv");
-      res.setHeader("Content-Type", "text/csv");
-      return res.status(200).end(csv);
-    }
-
-    // ----- Total Count -----
-    const countQuery = `SELECT COUNT(*) FROM device_access_logs ${where}`;
-    const countResult = await pool.query(countQuery, values.slice(0, whereClauses.length));
-    const totalCount = parseInt(countResult.rows[0].count);
-
-    if (page && limit) {
-      return res.status(200).json({
-        success: true,
-        page: pageNum,
-        limit: limitNum,
-        totalCount,
-        data
-      });
-    }
-
-    return res.status(200).json({ success: true, totalCount, data });
-
-  } catch (error) {
-    console.error("deviceAccessReport error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error", error: error.message });
-  }
+  return moment({ hour: hours, minute: minutes }).format("hh:mm A");
 };
 
-exports.deviceAccessReport2 = async (req, res) => {
-  try {
+const weekdayMap = [
+  "Sunday", "Monday", "Tuesday",
+  "Wednesday", "Thursday", "Friday", "Saturday"
+];
 
-    const {
-      report_type = "access_report",
-      page = 1,
-      limit = 10,
-      id,
-      sortField = "created_at",
-      sortOrder = "desc",
-      user_id,
-      format = "json"
-    } = req.body;
+const formatTimeConfig = (configs) => {
+  if (!configs || !Array.isArray(configs)) return [];
 
-    let values = [];
-    let whereClauses = [];
+  return configs.map(c => {
+    const isOvernight = c.end < c.start;
 
-    /*
-    -----------------------------
-    USER REPORT MODE
-    -----------------------------
-    */
-
-    if (report_type !== "user_report") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid report type"
-      });
-    }
-
-    if (user_id) {
-      values.push(user_id);
-      whereClauses.push(`u.user_id = $${values.length}`);
-    }
-
-    if (id) {
-      values.push(id);
-      whereClauses.push(`u.id = $${values.length}`);
-    }
-
-    const where =
-      whereClauses.length > 0
-        ? `WHERE ${whereClauses.join(" AND ")}`
-        : "";
-
-    /*
-    -----------------------------
-    SORTING
-    -----------------------------
-    */
-
-    const sortableFields = {
-      user_name: "u.name",
-      user_id: "u.user_id",
-      created_at: "u.created_at"
+    return {
+      day: weekdayMap[c.weekdays] || "Unknown",
+      start_time: secondsToTime(c.start),
+      end_time: secondsToTime(c.end),
+      note: isOvernight ? "Next Day" : null
     };
+  });
+};
 
-    const orderField = sortableFields[sortField] || "u.created_at";
+const formatDataByReport = (report_type, item) => {
 
-    const orderBy = `ORDER BY ${orderField} ${sortOrder.toLowerCase() === "asc" ? "ASC" : "DESC"
-      }`;
-
-    /*
-    -----------------------------
-    PAGINATION
-    -----------------------------
-    */
-
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const offset = (pageNum - 1) * limitNum;
-
-    values.push(limitNum);
-    values.push(offset);
-
-    const pagination = `LIMIT $${values.length - 1} OFFSET $${values.length}`;
-
-    /*
-    -----------------------------
-    MAIN QUERY
-    -----------------------------
-    */
-
-    const query = `
-      SELECT
-        u.id,
-        u.name AS user_name,
-        u.email,
-        u.phone_number,
-        u.user_id,
-        u.role,
-        u.wiegand_flag,
-        u.admin_auth,
-        u.sn,
-        wg.group_id,
-        u.created_at
-
-      FROM users u
-
-      LEFT JOIN user_wiegands uw
-        ON uw.user_id = u.user_id
-        AND uw.sn = u.sn
-
-      LEFT JOIN wiegand_groups wg
-        ON wg.id = uw.group_uuid
-
-      ${where}
-
-      ${orderBy}
-
-      ${pagination}
-    `;
-
-    const result = await pool.query(query, values);
-    let data = result.rows;
-
-    data = data.map(item => ({
-      ...item,
-      created_at: moment(item.created_at).format("DD-MM-YYYY HH:mm:ss")
-    }));
-
-    /*
-    -----------------------------
-    CSV EXPORT
-    -----------------------------
-    */
-
-    if (format === "csv") {
-
-      const fields = [
-        "id",
-        "user_name",
-        "email",
-        "phone_number",
-        "user_id",
-        "role",
-        "wiegand_flag",
-        "admin_auth",
-        "sn",
-        "group_id",
-        "created_at"
-      ];
-
-      const parser = new Parser({ fields });
-      const csv = parser.parse(data);
-
-      res.setHeader(
-        "Content-Disposition",
-        "attachment; filename=user_report.csv"
-      );
-
-      res.setHeader("Content-Type", "text/csv");
-
-      return res.status(200).end(csv);
-    }
-
-    /*
-    -----------------------------
-    TOTAL COUNT
-    -----------------------------
-    */
-
-    const countQuery = `
-      SELECT COUNT(*)
-      FROM users u
-      LEFT JOIN user_wiegands uw
-        ON uw.user_id = u.user_id
-        AND uw.sn = u.sn
-      LEFT JOIN wiegand_groups wg
-        ON wg.id = uw.group_uuid
-      ${where}
-    `;
-
-    const countValues = values.slice(0, values.length - 2);
-
-    const countResult = await pool.query(countQuery, countValues);
-
-    const totalCount = parseInt(countResult.rows[0].count);
-
-    return res.status(200).json({
-      success: true,
-      page: pageNum,
-      limit: limitNum,
-      totalCount,
-      data
-    });
-
-  } catch (error) {
-
-    console.error("deviceAccessReport error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-      error: error.message
-    });
-
+  if (report_type === "user_wiegand_report") {
+    return {
+      user_id: item.user_id,
+      user_name: item.user_name,
+      email: item.email,
+      phone_number: item.phone_number,
+      sn: item.sn,
+      group_id: item.group_id,
+      day: item.day,
+      start_time: item.start_time,
+      end_time: item.end_time,
+      note: item.note
+    };
   }
+
+  if (report_type === "group_report") {
+    return {
+      group_id: item.group_id,
+      sn: item.sn,
+      day: item.day,
+      start_time: item.start_time,
+      end_time: item.end_time,
+      note: item.note,
+      created_at: item.created_at
+        ? moment(item.created_at).format("DD-MM-YYYY")
+        : null
+    };
+  }
+
+  if (report_type === "device_report") {
+    return {
+      sn: item.sn,
+      device_name: item.device_name,
+      device_ip: item.device_ip,
+      online_status: item.online_status,
+      firmware_version: item.firmware_version,
+      last_connect_time: item.last_connect_time
+        ? moment(item.last_connect_time).format("DD-MM-YYYY HH:mm:ss")
+        : null,
+      created_at: item.created_at
+        ? moment(item.created_at).format("DD-MM-YYYY")
+        : null
+    };
+  }
+
+  if (report_type === "access_log_report") {
+    return {
+      user_id: item.user_id,
+      user_name: item.user_name,
+      sn: item.sn,
+      device_name: item.device_name,
+      palm_type: item.palm_type,
+      device_time: item.device_date_time,
+      created_at: item.created_at
+        ? moment(item.created_at).format("DD-MM-YYYY")
+        : null
+    };
+  }
+
+  if (report_type === "user_report") {
+    return {
+      user_id: item.user_id,
+      user_name: item.user_name,
+      email: item.email,
+      phone_number: item.phone_number,
+      sn: item.sn,
+      device_name: item.device_name,
+      created_at: item.created_at
+        ? moment(item.created_at).format("DD-MM-YYYY")
+        : null
+    };
+  }
+
+  return item;
 };
 
 exports.deviceAccessReport = async (req, res) => {
@@ -390,23 +156,23 @@ exports.deviceAccessReport = async (req, res) => {
 
       query = `
         SELECT
-          u.id,
+          u.user_id,
           u.name AS user_name,
           u.email,
           u.phone_number,
-          u.user_id,
-          u.role,
           u.wiegand_flag,
           u.admin_auth,
           u.sn,
-          wg.group_id,
+          d.device_name,
           u.created_at
         FROM users u
+        LEFT JOIN devices d
+        ON d.sn = u.sn
         LEFT JOIN user_wiegands uw
           ON uw.user_id = u.user_id
           AND uw.sn = u.sn
         LEFT JOIN wiegand_groups wg
-          ON wg.id = uw.group_uuid
+          ON wg.id = uw.group_uuid WHERE u.role = 'inmate'
       `;
 
       countQuery = `
@@ -446,7 +212,6 @@ exports.deviceAccessReport = async (req, res) => {
 
       query = `
         SELECT
-          d.id,
           d.sn,
           d.device_name,
           d.device_ip,
@@ -462,37 +227,37 @@ exports.deviceAccessReport = async (req, res) => {
         FROM devices d
       `;
     }
-    
+
     /*
 --------------------------------
 ACCESS LOG REPORT
 --------------------------------
 */
 
-else if (report_type === "access_log_report") {
+    else if (report_type === "access_log_report") {
 
-  if (id) {
-    values.push(id);
-    whereClauses.push(`dal.id = $${values.length}`);
-  }
+      if (id) {
+        values.push(id);
+        whereClauses.push(`dal.id = $${values.length}`);
+      }
 
-  if (user_id) {
-    values.push(user_id);
-    whereClauses.push(`dal.user_id = $${values.length}`);
-  }
+      if (user_id) {
+        values.push(user_id);
+        whereClauses.push(`dal.user_id = $${values.length}`);
+      }
 
-  if (sn) {
-    values.push(sn);
-    whereClauses.push(`dal.sn = $${values.length}`);
-  }
+      if (sn) {
+        values.push(sn);
+        whereClauses.push(`dal.sn = $${values.length}`);
+      }
 
-  sortableFields = {
-    user_id: "dal.user_id",
-    device_time: "dal.device_date_time",
-    created_at: "dal.created_at"
-  };
+      sortableFields = {
+        user_id: "dal.user_id",
+        device_time: "dal.device_date_time",
+        created_at: "dal.created_at"
+      };
 
-  query = `
+      query = `
     SELECT
       dal.id,
       dal.sn,
@@ -509,126 +274,202 @@ else if (report_type === "access_log_report") {
       ON d.sn = dal.sn
   `;
 
-  countQuery = `
+      countQuery = `
     SELECT COUNT(*)
     FROM device_access_logs dal
     LEFT JOIN devices d
       ON d.sn = dal.sn
   `;
-}
+    }
 
-/*
---------------------------------
-GROUP REPORT
---------------------------------
-*/
+    /*
+    --------------------------------
+    GROUP REPORT
+    --------------------------------
+    */
+    else if (report_type === "group_report") {
 
-else if (report_type === "group_report") {
+      if (id) {
+        values.push(id);
+        whereClauses.push(`wg.id = $${values.length}`);
+      }
 
-  if (id) {
-    values.push(id);
-    whereClauses.push(`wg.id = $${values.length}`);
-  }
+      if (sn) {
+        values.push(sn);
+        whereClauses.push(`wg.sn = $${values.length}`);
+      }
 
-  if (sn) {
-    values.push(sn);
-    whereClauses.push(`wg.sn = $${values.length}`);
-  }
+      if (group_id) {
+        values.push(group_id);
+        whereClauses.push(`wg.group_id = $${values.length}`);
+      }
 
-  if (group_id) {
-    values.push(group_id);
-    whereClauses.push(`wg.group_id = $${values.length}`);
-  }
+      sortableFields = {
+        group_id: "wg.group_id",
+        sn: "wg.sn",
+        created_at: "wg.created_at"
+      };
 
-  sortableFields = {
-    group_id: "wg.group_id",
-    sn: "wg.sn",
-    created_at: "wg.created_at"
-  };
-
-  query = `
+      // 🔥 FINAL QUERY (bitmask + readable columns)
+      query = `
     SELECT
       wg.id,
       wg.group_id,
       wg.sn,
-      wg.time_configs,
       wg.del_flag,
       wg.created_at,
-      wg.updated_at
+      wg.updated_at,
+
+      d.day_name AS day,
+
+      TO_CHAR(
+        make_interval(secs => (tc->>'start')::int),
+        'HH12:MI AM'
+      ) AS start_time,
+
+      TO_CHAR(
+        make_interval(secs => (tc->>'end')::int),
+        'HH12:MI AM'
+      ) AS end_time,
+
+      CASE 
+        WHEN (tc->>'end')::int < (tc->>'start')::int 
+        THEN 'Next Day'
+        ELSE NULL
+      END AS note
+
     FROM wiegand_groups wg
+
+    LEFT JOIN LATERAL jsonb_array_elements(wg.time_configs) tc ON true
+
+    JOIN LATERAL (
+      VALUES
+        (0, 'Sunday'),
+        (1, 'Monday'),
+        (2, 'Tuesday'),
+        (3, 'Wednesday'),
+        (4, 'Thursday'),
+        (5, 'Friday'),
+        (6, 'Saturday')
+    ) AS d(bit, day_name)
+    ON ((tc->>'weekdays')::int & (1 << d.bit)) > 0
   `;
 
-  countQuery = `
+      // ⚠️ count must match joins
+      countQuery = `
     SELECT COUNT(*)
     FROM wiegand_groups wg
+    LEFT JOIN LATERAL jsonb_array_elements(wg.time_configs) tc ON true
+    JOIN LATERAL (
+      VALUES
+        (0), (1), (2), (3), (4), (5), (6)
+    ) AS d(bit)
+    ON ((tc->>'weekdays')::int & (1 << d.bit)) > 0
   `;
-}
+    }
 
+    /*
+    --------------------------------
+    USER WIEGAND REPORT
+    --------------------------------
+    */
 
-/*
---------------------------------
-USER WIEGAND REPORT
---------------------------------
-*/
+    else if (report_type === "user_wiegand_report") {
 
-else if (report_type === "user_wiegand_report") {
+      if (id) {
+        values.push(id);
+        whereClauses.push(`uw.id = $${values.length}`);
+      }
 
-  if (id) {
-    values.push(id);
-    whereClauses.push(`uw.id = $${values.length}`);
-  }
+      if (user_id) {
+        values.push(user_id);
+        whereClauses.push(`uw.user_id = $${values.length}`);
+      }
 
-  if (user_id) {
-    values.push(user_id);
-    whereClauses.push(`uw.user_id = $${values.length}`);
-  }
+      if (sn) {
+        values.push(sn);
+        whereClauses.push(`uw.sn = $${values.length}`);
+      }
 
-  if (sn) {
-    values.push(sn);
-    whereClauses.push(`uw.sn = $${values.length}`);
-  }
+      if (group_id) {
+        values.push(group_id);
+        whereClauses.push(`uw.group_id = $${values.length}`);
+      }
 
-  if (group_id) {
-    values.push(group_id);
-    whereClauses.push(`uw.group_id = $${values.length}`);
-  }
+      sortableFields = {
+        user_id: "uw.user_id",
+        group_id: "uw.group_id",
+        sn: "uw.sn"
+      };
 
-  sortableFields = {
-    user_id: "uw.user_id",
-    group_id: "uw.group_id",
-    sn: "uw.sn"
-  };
+      query = `
+  SELECT
+    uw.user_id,
+    u.name AS user_name,
+    u.email,
+    u.phone_number,
+    uw.sn,
+    uw.group_uuid,
+    uw.group_id,
+    uw.timestamp,
+    uw.del_flag,
+    wg.created_at AS group_created_at,
 
-  query = `
-    SELECT
-      uw.id,
-      uw.user_id,
-      u.name AS user_name,
-      u.email,
-      u.phone_number,
-      uw.sn,
-      uw.group_uuid,
-      uw.group_id,
-      uw.timestamp,
-      uw.del_flag,
-      wg.time_configs,
-      wg.created_at AS group_created_at
-    FROM user_wiegands uw
+    d.day_name AS day,
 
-    LEFT JOIN users u
-      ON u.user_id = uw.user_id
+    TO_CHAR(
+      make_interval(secs => (tc->>'start')::int),
+      'HH12:MI AM'
+    ) AS start_time,
 
-    LEFT JOIN wiegand_groups wg
-      ON wg.id = uw.group_uuid
-  `;
+    TO_CHAR(
+      make_interval(secs => (tc->>'end')::int),
+      'HH12:MI AM'
+    ) AS end_time,
 
-  countQuery = `
-    SELECT COUNT(*)
-    FROM user_wiegands uw
-    LEFT JOIN wiegand_groups wg
-      ON wg.id = uw.group_uuid
-  `;
-}
+    CASE 
+      WHEN (tc->>'end')::int < (tc->>'start')::int 
+      THEN 'Next Day'
+      ELSE NULL
+    END AS note
+
+  FROM user_wiegands uw
+
+  LEFT JOIN users u
+    ON u.user_id = uw.user_id
+
+  LEFT JOIN wiegand_groups wg
+    ON wg.id = uw.group_uuid
+
+  -- 🔥 explode JSON
+  LEFT JOIN LATERAL jsonb_array_elements(wg.time_configs) tc ON true
+
+  -- 🔥 decode bitmask
+  JOIN LATERAL (
+    VALUES
+      (0, 'Sunday'),
+      (1, 'Monday'),
+      (2, 'Tuesday'),
+      (3, 'Wednesday'),
+      (4, 'Thursday'),
+      (5, 'Friday'),
+      (6, 'Saturday')
+  ) AS d(bit, day_name)
+  ON ((tc->>'weekdays')::int & (1 << d.bit)) > 0
+`;
+
+      countQuery = `
+  SELECT COUNT(*)
+  FROM user_wiegands uw
+  LEFT JOIN wiegand_groups wg
+    ON wg.id = uw.group_uuid
+  LEFT JOIN LATERAL jsonb_array_elements(wg.time_configs) tc ON true
+  JOIN LATERAL (
+    VALUES (0),(1),(2),(3),(4),(5),(6)
+  ) AS d(bit)
+  ON ((tc->>'weekdays')::int & (1 << d.bit)) > 0
+`;
+    }
 
     else {
       return res.status(400).json({
@@ -656,9 +497,8 @@ else if (report_type === "user_wiegand_report") {
 
     const orderField = sortableFields[sortField] || Object.values(sortableFields)[0];
 
-    const orderBy = ` ORDER BY ${orderField} ${
-      sortOrder.toLowerCase() === "asc" ? "ASC" : "DESC"
-    }`;
+    const orderBy = ` ORDER BY ${orderField} ${sortOrder.toLowerCase() === "asc" ? "ASC" : "DESC"
+      }`;
 
     /*
     --------------------------------
@@ -682,14 +522,22 @@ else if (report_type === "user_wiegand_report") {
     */
 
     const result = await pool.query(query + where + orderBy + pagination, values);
-    let data = result.rows;
+    // let data = result.rows;
+     let data = result.rows.map(item => formatDataByReport(report_type, item));
 
-    data = data.map(item => ({
-      ...item,
-      created_at: item.created_at
-        ? moment(item.created_at).format("DD-MM-YYYY HH:mm:ss")
-        : null
-    }));
+
+    // data = data.map(item => ({
+    //   ...item,
+    //   created_at: item.created_at
+    //     ? moment(item.created_at).format("DD-MM-YYYY")
+    //     : null,
+    //   last_connect_time: item.last_connect_time
+    //     ? moment(item.last_connect_time).format("DD-MM-YYYY HH:mm:ss")
+    //     : null,
+    //   updated_at: item.updated_at
+    //     ? moment(item.updated_at).format("DD-MM-YYYY")
+    //     : null
+    // }));
 
     /*
     --------------------------------

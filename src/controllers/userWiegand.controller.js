@@ -94,7 +94,6 @@ exports.addUserWiegand = async (req, res) => {
       `SELECT id FROM user_wiegands WHERE user_id = $1 AND sn = $2`,
       [user_id, sn]
     );
-console.log("<><>existingUser",existingUser);
 
     if (existingUser.rows.length > 0) {
       return res.status(409).json({
