@@ -1,15 +1,7 @@
 const nodemailer = require('nodemailer');
 
 async function sendMissedPunchInEmail(users) {
-  console.log("<><>users", users);
-
   if (!users || users.length === 0) return;
-
-   console.log({
-    host: process.env.SMTP_HOST,
-    user: process.env.SMTP_USER,
-    passExists: !!process.env.SMTP_PASS
-  });
 
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -24,7 +16,6 @@ async function sendMissedPunchInEmail(users) {
   const list = users
     .map((u, i) => `${i + 1}. ${u.name} (${u.email})`)
     .join('<br/>');
-console.log("<><>list",list);
 
   const html = `
     <h3>Missed Punch-In Report</h3>
@@ -46,7 +37,6 @@ console.log("<><>list",list);
       <small>Attendance System</small>
     `
   });
-    console.log("<><>emailRes",emailRes);
 }
   
 }

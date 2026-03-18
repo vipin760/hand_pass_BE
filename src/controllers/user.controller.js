@@ -572,7 +572,6 @@ exports.addUserData = async (req, res) => {
         const buffer = Buffer.from(base64.split('base64,')[1] || base64, 'base64');
         const filename = `${sn}_${id}_${side}_${timestamp}.raw`;
         fs.writeFileSync(path.join(saveDir, filename), buffer);
-        console.log(`Saved ${side} palm raw: ${filename}`);
       } catch (e) {
         console.warn("Save raw failed:", e.message);
       }
@@ -616,11 +615,9 @@ exports.addUserData = async (req, res) => {
       [generatedId, generatedId]
     );
 
-    console.log(`Palm registered: ${name} (${id}) on device ${sn}`);
     return res.json({ code: 0, msg: "success" });
 
   } catch (error) {
-    console.log("<><>addUserData failed:", error);
     return res.json({ code: 1, msg: "Registration failed" });
   }
 };

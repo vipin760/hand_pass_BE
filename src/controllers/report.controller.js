@@ -172,7 +172,7 @@ exports.deviceAccessReport = async (req, res) => {
           ON uw.user_id = u.user_id
           AND uw.sn = u.sn
         LEFT JOIN wiegand_groups wg
-          ON wg.id = uw.group_uuid WHERE u.role = 'inmate'
+          ON wg.id = uw.group_uuid
       `;
 
       countQuery = `

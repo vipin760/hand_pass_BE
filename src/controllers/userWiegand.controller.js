@@ -3,17 +3,12 @@ const { pool } = require("../config/database");
 exports.addUserWiegand1 = async (req, res) => {
   try {
     const { sn, user_id, group_id = '', del_flag = false } = req.body;
-    console.log("<><>req.body", req.body)
-
     const timestamp = Math.floor(Date.now() / 1000)
 
     const istTime = new Date(timestamp * 1000).toLocaleString(
       "en-IN",
       { timeZone: "Asia/Kolkata" }
     )
-
-    console.log("<><>timestamp", timestamp)
-    console.log("<><>istTime", istTime)
 
     // Basic validation
     if (!sn || !user_id || !timestamp) {

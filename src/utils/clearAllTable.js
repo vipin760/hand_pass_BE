@@ -13,8 +13,6 @@ async function clearAllTables() {
     //  users,
     // Re-enable foreign key constraints
     await pool.query('SET session_replication_role = DEFAULT;');
-
-    console.log('✅ All tables cleared successfully.');
     return { status: true, message: "All tables cleared successfully" }
   } catch (err) {
     console.error('❌ Failed to clear tables:', err);
@@ -39,7 +37,6 @@ async function dropAllTables() {
     // Re-enable foreign key constraints
     await pool.query('SET session_replication_role = DEFAULT;');
 
-    console.log('✅ All tables dropped successfully.');
     return { status: true, message: "All tables dropped successfully" };
   } catch (err) {
     console.error('❌ Failed to drop tables:', err);

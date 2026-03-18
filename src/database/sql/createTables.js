@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS attendance_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id VARCHAR(100) NOT NULL,
   sn VARCHAR(50),
+  group_id VARCHAR(50),
   attendance_date DATE NOT NULL,
 
   check_in TIMESTAMP,
@@ -104,6 +105,17 @@ CREATE TABLE IF NOT EXISTS attendance_records (
   updated_at TIMESTAMP DEFAULT now(),
 
   UNIQUE(user_id, attendance_date)
+);
+
+CREATE TABLE  IF NOT EXISTS processed_attendance_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id VARCHAR(100),
+  sn VARCHAR(50),
+  attendance_date DATE,
+  first_in TIMESTAMP,
+  last_out TIMESTAMP,
+  total_logs INT,
+  created_at TIMESTAMP DEFAULT now()
 );
 
     `);

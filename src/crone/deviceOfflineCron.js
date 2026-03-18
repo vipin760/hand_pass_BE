@@ -5,7 +5,6 @@ const { runAttendanceCheck } = require("../jobs/attendance.job")
 
 //Runs every 2 minutes – extremely accurate and survives server restarts
 cron.schedule('* * * * *', async () => {
-    console.log("crone job starting")
     try {
         const result = await pool.query(`
           UPDATE devices 

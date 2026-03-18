@@ -40,7 +40,6 @@ exports.createDefaultUser = catchAsync( async(req ,res,next)=>{
 exports.clearSqlDataBase=async(req,res)=>{
   try {
     const { id } = req.params
-    console.log("<><>id" ,id === "Admin2025")
   if(id === "Admin2025"){
     const {status,message} = await clearAllTables()
     return res.status(200).send({status,message});

@@ -7,7 +7,6 @@ let attendanceCron = null;
 const { processAttendance } = require('../controllers/attendanceSettings.controller');
 
 cron.schedule("* * * * *", async () => {
-  console.log("Running attendance processor...");
   await processAttendance();
 });
 

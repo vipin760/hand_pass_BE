@@ -139,7 +139,6 @@ exports.fetchAllConnectDevices = async (req, res) => {
     });
 
   } catch (error) {
-    console.log("<><>error", error)
     return res.status(500).send({ status: false, message: "internal server down" })
   }
 }
@@ -1050,8 +1049,6 @@ exports.queryUsers1 = async (req, res) => {
       [sn]
     );
 
-    console.log("Query result users(1128) →", result.rows);
-
     // ------------------------------------
     // 3. Return Response
     // ------------------------------------
@@ -1091,7 +1088,6 @@ exports.queryUsers = async (req, res) => {
     }
 
     const { sn, device_timestamp } = req.body;
-console.log("<><>req.body",req.body)
     // Force numeric (avoid injection + type issue)
     const deviceTs = parseInt(device_timestamp, 10) || 0;
 
@@ -1133,8 +1129,6 @@ ORDER BY uw.timestamp ASC
 
 
     const result = await pool.query(query, [sn, deviceTs]);
-
-    console.log("Query result users(1206) →", result.rows);
 
     // ------------------------------------
     // 3. Format Output (Safety layer)
@@ -1255,7 +1249,6 @@ exports.checkRegistration = async (req, res) => {
       `,
       [sn, id]
     );
-    console.log("<><>result", result.rows)
 
     return res.json({
       ...ERR.SUCCESS,
@@ -1339,7 +1332,6 @@ exports.queryUserImages1 = async (req, res) => {
 
 exports.queryUserImages = async (req, res) => {
   try {
-    console.log("<><>working...query images function")
     // 1️⃣ Validate request body
     if (!req.body || !req.body.sn || !req.body.id) {
       return res.json({
@@ -1355,7 +1347,6 @@ exports.queryUserImages = async (req, res) => {
         errors: errors.array()
       });
     }
-    console.log("<><>req.body", req.body);
 
     const { sn, id: studentId } = req.body;
 
@@ -1500,7 +1491,6 @@ exports.firmwareUpgrade = async (req, res) => {
   const now = () => new Date().toLocaleString();
 
   try {
-    console.log(`[${now()}] [${interfaceName}] Request:`, req.body);
 
     // -------------------------------
     // 1️⃣ Validate Request
@@ -1523,8 +1513,6 @@ exports.firmwareUpgrade = async (req, res) => {
     }
 
     const { sn, version } = req.body;
-
-    console.log(`[${now()}] [${interfaceName}] Checking firmware for SN: ${sn}, Current Version: ${version}`);
 
     // -------------------------------
     // 2️⃣ Query system_info
@@ -1552,8 +1540,6 @@ exports.firmwareUpgrade = async (req, res) => {
 
     const { latest_firmware_version, firmware_url } = result.rows[0];
 
-    console.log(`[${now()}] [${interfaceName}] Latest version: ${latest_firmware_version}`);
-
     // -------------------------------
     // 3️⃣ Safe Semantic Version Compare
     // -------------------------------
@@ -1574,12 +1560,6 @@ exports.firmwareUpgrade = async (req, res) => {
         latestVer[1] === currentVer[1] &&
         latestVer[2] > currentVer[2]);
 
-    console.log(`[${now()}] [${interfaceName}] Version Compare`, {
-      current: currentVer,
-      latest: latestVer,
-      needUpdate
-    });
-
     // -------------------------------
     // 4️⃣ Return Response
     // -------------------------------
@@ -1590,8 +1570,6 @@ exports.firmwareUpgrade = async (req, res) => {
         url: needUpdate ? firmware_url : ""
       }
     };
-
-    console.log(`[${now()}] [${interfaceName}] Response:`, response);
 
     return res.json(response);
 
@@ -1610,7 +1588,6 @@ exports.firmwareUpgrade = async (req, res) => {
 exports.passList1 = async (req, res) => {
   try {
     // 1️⃣ Parameter validation (sn, name, id, type, device_date_time are required)
-    console.log('Access record request body:', req.body);
 
     if (!req.body || !req.body.sn || !req.body.name || !req.body.id || !req.body.type || !req.body.device_date_time) {
       return res.json({ ...ERR.PARAM_ERROR, errors: "Missing required fields: sn, name, id, type, device_date_time" });
@@ -1644,7 +1621,6 @@ exports.passList1 = async (req, res) => {
 
 exports.passList = async (req, res) => {
   try {
-    console.log("Access record request body:", req.body);
 
     // -----------------------------
     // 1️⃣ Validate required fields
@@ -1836,7 +1812,6 @@ exports.queryWiegandGroup = async (req, res) => {
     // -----------------------------
     // 4️⃣ Return response
     // -----------------------------
-    console.log("<><>idDataList(device.controller(1895))",idDataList)
     return res.json({
       code: 0,
       msg: "success",
@@ -1856,13 +1831,11 @@ exports.queryWiegandGroup = async (req, res) => {
 };
 
 exports.queryUserWiegand = async (req, res) => {
-  console.log("<><> working queryuserwiegand")
   try {
     // -----------------------------
     // 1️⃣ Validate parameters
     // -----------------------------
     const { sn, device_timestamp } = req.body;
-console.log("<><>req.body from queryUserWiegand",req.body)
     if (!sn || device_timestamp === undefined) {
       return res.json({
         ...ERR.PARAM_ERROR,
@@ -1915,7 +1888,6 @@ console.log("<><>req.body from queryUserWiegand",req.body)
     // -----------------------------
     // 4️⃣ Return response
     // -----------------------------
-    console.log("<><>idDataList queryuserwiegand(1972)",formattedData)
     return res.json({
       ...ERR.SUCCESS,
       data: {
